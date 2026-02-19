@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 6: Unpacked Content Scanning</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--green),var(--cyan));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.glow-yellow{color:var(--yellow);text-shadow:0 0 30px rgba(255,215,64,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Pipeline Stage 6</p>
+  <h1 class="glow-green">Unpacked Content<br>Scanning</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">Recursive scanning of emulator output: modified sections + VFS drops</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">25+</span><span class="label">Static Unpackers</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan">6</span><span class="label">UPX Variants</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple">10</span><span class="label">PECompact Decrypters</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">8</span><span class="label">Control Attributes</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">Engine.Scan.Unpacker @ 0x109C6068 &mdash; HandleUnpacker @ 0x10C92DC8</p>
+</div>
+</div>
+
+<!-- SLIDE 2: What Gets Unpacked -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">What Gets Unpacked?</h2>
+  <p class="desc mb-2">After PE emulation, two categories of content are extracted for recursive scanning</p>
+  <div class="split">
+    <div style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);border-radius:12px;padding:24px">
+      <h3 style="color:var(--green);margin-bottom:12px">Modified PE Sections</h3>
+      <p class="desc" style="font-size:0.85rem">During emulation, the malware decrypts or decompresses its payload by overwriting its own PE sections. The engine detects these modifications by comparing each section's current state against the original image.</p>
+      <div class="code-block mt-2" style="font-size:0.72rem"><span class="cmt">Detection criteria:</span>
+- Write ops to executable sections (.text)
+- Large-scale overwrites (decryption loops)
+- New code in zero-filled regions
+- VirtualProtect to PAGE_EXECUTE
+  <span class="cmt">via</span> <span class="fn">VirtualProtectCallback</span>
+      @ <span class="num">0x10C7B7B0</span></div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:24px">
+      <h3 style="color:var(--cyan);margin-bottom:12px">VFS Dropped Files</h3>
+      <p class="desc" style="font-size:0.85rem">Dropper malware writes payloads to disk via CreateFileW/WriteFile. The emulator intercepts these calls and stores the data in a Virtual File System.</p>
+      <div class="code-block mt-2" style="font-size:0.72rem"><span class="cmt">VFS string references:</span>
+<span class="str">"(VFS:%ls#%zd)"</span>     @ <span class="num">0x10B87920</span>
+<span class="str">"(VFS:...%ls#%zd)"</span>  @ <span class="num">0x10B8790C</span>
+<span class="str">"(VFS:#%zd)"</span>        @ <span class="num">0x10B87900</span>
+<span class="str">"NDAT_VFS_LINK"</span>     @ <span class="num">0x109811F8</span>
+<span class="str">"VFSParams"</span>         @ <span class="num">0x10B76888</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Unpack Flow -->
+<div class="slide" data-slide="3">
+<div class="slide-inner center-col">
+  <h2 class="glow-cyan mb-1">Unpack Pipeline Flow</h2>
+  <p class="desc mb-2">Static unpackers run first, then emulation-based unpacking, then VFS extraction</p>
+  <div class="pipeline-track" style="max-width:1100px">
+    <div class="pipeline-dot"></div>
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);padding:8px 14px;transition-delay:0.05s;margin:4px;color:var(--purple)">Emulation Done</div>
+      <span class="flow-arrow" style="transition-delay:0.08s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);padding:8px 14px;transition-delay:0.1s;margin:4px;color:var(--orange)">HandleUnpacker</div>
+      <span class="flow-arrow" style="transition-delay:0.13s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);padding:8px 14px;transition-delay:0.15s;margin:4px;color:var(--cyan)">Static Unpackers</div>
+      <span class="flow-arrow" style="transition-delay:0.18s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);padding:8px 14px;transition-delay:0.2s;margin:4px;color:var(--green)">Modified Sections</div>
+      <span class="flow-arrow" style="transition-delay:0.23s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);padding:8px 14px;transition-delay:0.25s;margin:4px;color:var(--yellow)">VFS Drops</div>
+      <span class="flow-arrow" style="transition-delay:0.28s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.5);padding:8px 14px;transition-delay:0.3s;margin:4px;color:var(--green);font-weight:700">Recursive Scan</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="transition-delay:0.35s;border:1px solid rgba(57,255,20,0.3);min-width:250px">
+      <span style="font-size:0.85rem;color:var(--green)">Recursive Target: Stage 2</span>
+      <span class="label">Unpacked content re-enters full pipeline</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.4s;border:1px solid rgba(255,82,82,0.3);min-width:250px">
+      <span style="font-size:0.85rem;color:var(--red)">Depth Limited</span>
+      <span class="label">scan_depth counter prevents infinite recursion</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: Static Unpackers -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Static Unpackers: 25+ Classes</h2>
+  <p class="desc mb-2">Format-specific unpackers recognized via RTTI in the binary</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">UPX Family (6 variants)</h3>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.05s;padding:6px 12px">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">UpxwUnpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C92FA0</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.08s;padding:6px 12px">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">Upxw896Unpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C92FBC</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.11s;padding:6px 12px">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">Upxw60Unpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C92FDC</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.14s;padding:6px 12px">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">Upx30LZMAUnpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C930C4</span>
+        </div>
+      </div>
+      <h3 class="mt-2" style="color:var(--orange)">Petite Family (5 variants)</h3>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.17s;padding:6px 12px">
+          <span class="name" style="color:var(--yellow);font-size:0.8rem">CPetiteUnpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C93480</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.2s;padding:6px 12px">
+          <span class="name" style="color:var(--yellow);font-size:0.8rem">CPetite12-14/21-23</span>
+          <span class="detail mono" style="font-size:0.6rem">5 version-specific classes</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">PECompact Family (4 variants)</h3>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.23s;padding:6px 12px">
+          <span class="name" style="color:var(--purple);font-size:0.8rem">CPECompact2</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C93560</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.26s;padding:6px 12px">
+          <span class="name" style="color:var(--purple);font-size:0.8rem">CPECompact2V250</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C935E4 (10 decrypters)</span>
+        </div>
+      </div>
+      <h3 class="mt-2" style="color:var(--orange)">Other Unpackers</h3>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.29s;padding:6px 12px">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">AspackUnpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C942B4</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.32s;padding:6px 12px">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">FSGUnpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C94040</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.35s;padding:6px 12px">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">ShrinkerUnpacker</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10C932F8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.38s;padding:6px 12px">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">JDPack/PKLite/Area51...</span>
+          <span class="detail mono" style="font-size:0.6rem">12+ more format-specific</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: PECompact Decrypters -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">PECompact 2.50: 10 Decrypter Algorithms</h2>
+  <p class="desc mb-2">The most complex static unpacker, with dedicated decrypter classes for each encryption variant</p>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;width:100%">
+    <div class="stat-card" style="transition-delay:0.05s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--purple)">CRC32</span><span class="label">CRC32-keyed</span></div>
+    <div class="stat-card" style="transition-delay:0.1s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--purple)">Crypt</span><span class="label">Generic crypto</span></div>
+    <div class="stat-card" style="transition-delay:0.15s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--purple)">XOR</span><span class="label">XOR cipher</span></div>
+    <div class="stat-card" style="transition-delay:0.2s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--purple)">MsgBox</span><span class="label">MessageBox trick</span></div>
+    <div class="stat-card" style="transition-delay:0.25s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--purple)">Rnd5</span><span class="label">Random polymorph</span></div>
+    <div class="stat-card" style="transition-delay:0.3s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--cyan)">DECADA82</span><span class="label">DECADA82 algo</span></div>
+    <div class="stat-card" style="transition-delay:0.35s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--cyan)">Cod1</span><span class="label">Cod1 algorithm</span></div>
+    <div class="stat-card" style="transition-delay:0.4s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--cyan)">Verify</span><span class="label">CRC verify</span></div>
+    <div class="stat-card" style="transition-delay:0.45s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--cyan)">Invert</span><span class="label">Bit inversion</span></div>
+    <div class="stat-card" style="transition-delay:0.5s;padding:12px"><span class="num" style="font-size:0.75rem;color:var(--cyan)">WinCrypt</span><span class="label">CryptoAPI</span></div>
+  </div>
+  <div class="code-block mt-2" style="font-size:0.7rem;max-width:900px"><span class="cmt">// RTTI from CPECompact2V250Unpacker nested classes:</span>
+<span class="str">.?AVCVersion20x_21xCRC32Decrypter@...CPECompact2V20x_21xUnpacker@@...</span>
+<span class="str">.?AVCCryptDecrypter@...Crypt@CPECompact2V250Unpacker@@...</span>
+<span class="str">.?AVCXorDecrypter@...Xor@CPECompact2V250Unpacker@@...</span>
+<span class="str">.?AVCMessageBoxDecrypter@...ProcessMessageBox@CPECompact2V250Unpacker@@...</span>
+<span class="str">.?AVCRnd5Decrypter@...Rnd5Polymorph0@CPECompact2V250Unpacker@@...</span>
+<span class="str">.?AVCDECADA82Decrypter@...DecryptDECADA82@CPECompact2V250Unpacker@@...</span>
+<span class="str">.?AVCWincryptDecryptor@...WinCrypt@CPECompact2V250Unpacker@@...</span></div>
+</div>
+</div>
+
+<!-- SLIDE 6: Control Attributes -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Unpacking Control Attributes</h2>
+  <p class="desc mb-2">Attributes and NID tokens that configure unpacking behavior</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">Scan Attributes</h3>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.05s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">force_unpacking</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x109852D4</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.1s">
+          <span class="name" style="color:var(--red);font-size:0.8rem">disable_static_unpacking</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10984AE8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.15s">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">dt_continue_after_unpacking</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10984D1C</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.2s">
+          <span class="name" style="color:var(--yellow);font-size:0.8rem">dt_continue_..._damaged</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10984D38</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.25s">
+          <span class="name" style="color:var(--red);font-size:0.8rem">disable_dropper_rescan</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10984A90</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">PE-specific Variants</h3>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.3s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">pea_force_unpacking</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10A11570</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.35s">
+          <span class="name" style="color:var(--red);font-size:0.8rem">pea_disable_static_unpacking</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10A110B8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.4s">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">pea_dt_continue_after_unpacking</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10A11A88</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.45s">
+          <span class="name" style="color:var(--yellow);font-size:0.8rem">pea_dt_continue_..._damaged</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10A11B28</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.5s">
+          <span class="name" style="color:var(--red);font-size:0.8rem">pea_disable_dropper_rescan</span>
+          <span class="detail mono" style="font-size:0.6rem">@ 0x10A11014</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: NID Control Tokens -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-yellow mb-1">NID Control Tokens</h2>
+  <p class="desc mb-2">VDM database-level controls for the unpacking subsystem</p>
+  <div class="split-60-40">
+    <div>
+      <div class="code-block" style="font-size:0.78rem"><span class="str">"NID_DT_CONTINUE_AFTER_UNPACKING"</span>
+    @ <span class="num">0x10980A7C</span>
+    <span class="cmt">Continue scanning after unpack completes</span>
+
+<span class="str">"NID_DT_CONTINUE_AFTER_DAMAGED_UNPACKING"</span>
+    @ <span class="num">0x10980B5C</span>
+    <span class="cmt">Continue even if unpacked data is corrupted</span>
+
+<span class="str">"NID_DT_DISABLE_STATIC_UNPACKING"</span>
+    @ <span class="num">0x10980C30</span>
+    <span class="cmt">Skip all static unpackers (UPX, PECompact, etc.)</span>
+
+<span class="str">"NID_DT_ENABLE_STATIC_UNPACKING"</span>
+    @ <span class="num">0x10980C50</span>
+    <span class="cmt">Re-enable static unpackers if disabled</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--yellow)">Error Handling</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="str">"Failed to unpack %s"</span>
+    @ <span class="num">0x10B6D70C</span>
+
+<span class="str">"failed decompress unpacker code"</span>
+    @ <span class="num">0x10B79514</span>
+
+<span class="str">"failed to copy EP instruction series"</span>
+    @ <span class="num">0x10B794EC</span>
+
+<span class="str">"failed to make jump instruction"</span>
+    @ <span class="num">0x10B795C8</span>
+
+<span class="str">"too many results to unpack"</span>
+    @ <span class="num">0x10B54704</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: HandleUnpacker Entry Point -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">HandleUnpacker Entry Point</h2>
+  <p class="desc mb-2">The main dispatch function for Stage 6, revealed through RTTI analysis</p>
+  <div class="split-60-40">
+    <div>
+      <div class="code-block" style="font-size:0.75rem"><span class="cmt">// RTTI reveals function signature:</span>
+<span class="str">.?AUUnpackContextWrapper@?DJ@??HandleUnpacker@@YA?AW4scanresult_t@@PAUpe_vars_t@@@Z@</span>
+    @ <span class="num">0x10C92DC8</span>
+
+<span class="cmt">// Decoded:</span>
+<span class="kw">scanresult_t</span> <span class="fn">HandleUnpacker</span>(<span class="kw">pe_vars_t*</span> pe_vars)
+
+<span class="cmt">// Pseudocode (reconstructed):</span>
+<span class="kw">fn</span> <span class="fn">HandleUnpacker</span>(pe_vars: &amp;PeVars) -&gt; ScanResult {
+    <span class="cmt">// Phase 1: Static unpackers</span>
+    <span class="kw">if</span> !disabled_static {
+        result = <span class="fn">try_static_unpackers</span>(pe_vars);
+    }
+
+    <span class="cmt">// Phase 2: Modified section detection</span>
+    <span class="kw">for</span> section <span class="kw">in</span> pe_vars.sections {
+        <span class="kw">if</span> section.was_modified() {
+            <span class="fn">recursive_scan</span>(section.data, depth+<span class="num">1</span>);
+        }
+    }
+
+    <span class="cmt">// Phase 3: VFS dropped files</span>
+    <span class="kw">if</span> !disable_dropper_rescan {
+        <span class="kw">for</span> vfs <span class="kw">in</span> emu_ctx.vfs.entries() {
+            <span class="fn">recursive_scan</span>(vfs.data, depth+<span class="num">1</span>);
+        }
+    }
+
+    result
+}</div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan)">ETW Event</h3>
+      <div class="stat-card" style="transition-delay:0.2s;border:1px solid rgba(0,229,255,0.3)">
+        <span class="num glow-cyan" style="font-size:0.9rem">Engine.Scan.Unpacker</span>
+        <span class="label">@ 0x109C6068 &mdash; ETW trace event</span>
+      </div>
+      <h3 class="mt-2" style="color:var(--cyan)">AMUnpacker</h3>
+      <div class="stat-card" style="transition-delay:0.3s;border:1px solid rgba(0,229,255,0.3)">
+        <span class="num glow-cyan" style="font-size:0.9rem">amunpacker</span>
+        <span class="label">@ 0x109C7F34 &mdash; anti-malware unpacker subsystem</span>
+      </div>
+      <h3 class="mt-2" style="color:var(--cyan)">Recursive Path</h3>
+      <div class="code-block" style="font-size:0.7rem">Stage 5 (Emu)
+    &darr;
+Stage 6 (Unpack)
+    &darr;
+Stage 2 (FRIENDLY)
+    &darr;
+Stage 3+ (full pipeline)
+    &darr;
+<span class="cmt">depth check prevents</span>
+<span class="cmt">infinite recursion</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: XZ Decompression -->
+<div class="slide" data-slide="9">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">XZ Stream Decompression</h2>
+  <p class="desc mb-2">Specialized decompression path for XZ-compressed payloads</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--purple)">RTTI Classes</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="cmt">// xz_unpack_helper nested classes</span>
+
+<span class="fn">XZReader</span>          @ <span class="num">0x10C91DB0</span>
+<span class="fn">XZWriterAdaptor</span>   @ <span class="num">0x10C91E10</span>
+<span class="fn">XZReaderAdaptor</span>   @ <span class="num">0x10C91E60</span>
+<span class="fn">Canceler</span>          @ <span class="num">0x10C91AD0</span>
+<span class="fn">VfoWrapper</span>        @ <span class="num">0x10C91D50</span>
+
+<span class="cmt">// Top-level decompressor</span>
+<span class="fn">DecompressXZStream</span>
+  <span class="cmt">via unpackdata_t structure</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--purple)">How It Works</h3>
+      <p class="desc" style="font-size:0.85rem">When the emulator or static analysis detects an XZ-compressed stream, the dedicated XZ decompression path handles it separately from the general emulation-based unpacking.</p>
+      <p class="desc mt-1" style="font-size:0.85rem">The <code>Canceler</code> class provides timeout support, and the <code>VfoWrapper</code> wraps virtual file objects for decompressed output.</p>
+      <div class="stat-card mt-2" style="transition-delay:0.3s;border:1px solid rgba(179,136,255,0.3)">
+        <span class="num glow-purple" style="font-size:0.9rem">SCAN_REPLY</span>
+        <span class="label">Decompressed data fed back through scan pipeline</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 10: Summary -->
+<div class="slide" data-slide="10">
+<div class="slide-inner center-col" style="justify-content:center">
+  <h2 class="glow-green mb-2">Stage 6 Summary</h2>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.05s"><span class="num glow-green">25+</span><span class="label">Static Unpacker Classes</span></div>
+    <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-cyan">6</span><span class="label">UPX Variants</span></div>
+    <div class="stat-card" style="transition-delay:0.15s"><span class="num glow-purple">10</span><span class="label">PECompact Decrypters</span></div>
+    <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-orange">5</span><span class="label">Petite Variants</span></div>
+    <div class="stat-card" style="transition-delay:0.25s"><span class="num glow-yellow">8</span><span class="label">Control Attributes</span></div>
+    <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-cyan">4</span><span class="label">NID Control Tokens</span></div>
+    <div class="stat-card" style="transition-delay:0.35s"><span class="num glow-green">5</span><span class="label">Error Strings</span></div>
+    <div class="stat-card" style="transition-delay:0.4s"><span class="num glow-purple">1</span><span class="label">ETW Event</span></div>
+  </div>
+  <p class="mt-3" style="color:var(--fg3);font-size:0.85rem">All data from reverse engineering <span class="mono">mpengine.dll</span> v1.1.24120.x</p>
+  <div style="display:flex;gap:24px;margin-top:24px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;border:1px solid rgba(179,136,255,0.3);min-width:160px">
+      <span style="font-size:0.8rem;color:var(--purple)">&larr; Stage 5</span>
+      <span class="label">PE Emulation</span>
+    </div>
+    <div class="stat-card" style="opacity:1;transform:none;border:1px solid rgba(0,229,255,0.3);min-width:160px">
+      <span style="font-size:0.8rem;color:var(--cyan)">Stage 7 &rarr;</span>
+      <span class="label">Container Extraction</span>
+    </div>
+  </div>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

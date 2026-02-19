@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 13 — Verdict Resolution</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--green),var(--cyan));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.glow-red{color:var(--red);text-shadow:0 0 30px rgba(255,82,82,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Pipeline Stage 13 &mdash; Final Stage</p>
+  <h1 class="glow-green">Verdict Resolution</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">Merge all detections &rarr; filter &rarr; rank &rarr; deliver final answer</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-red">5</span><span class="label">Severity Levels</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">20+</span><span class="label">Threat Categories</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">4</span><span class="label">Suppression Checks</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan" data-count="16">0</span><span class="label">Verdict Fields</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">threatmgr @ 0x109C7E58 &mdash; the final arbiter of all scan results</p>
+</div>
+</div>
+
+<!-- SLIDE 2: Resolution Pipeline -->
+<div class="slide" data-slide="2">
+<div class="slide-inner center-col">
+  <h2 class="glow-cyan mb-1">Resolution Pipeline</h2>
+  <p class="desc mb-2">Five steps from raw detection list to final user-facing verdict</p>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;max-width:700px">
+    <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);transition-delay:0.1s;padding:14px 28px;color:var(--cyan);width:85%"><strong>1. Merge</strong> &mdash; Collect all ThreatRecords from Stages 3-12<br><span style="font-size:0.6rem;color:var(--fg3)">Static + emulation + Lua + AAGGREGATOR + MAPS FASTPATH</span></div>
+    <span class="flow-arrow" style="transition-delay:0.15s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);transition-delay:0.2s;padding:14px 28px;color:var(--orange);width:85%"><strong>2. Filter Infrastructure Markers</strong> &mdash; Remove all !-prefixed names<br><span style="font-size:0.6rem;color:var(--fg3)">AAGGREGATOR building blocks are never reported to users</span></div>
+    <span class="flow-arrow" style="transition-delay:0.25s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);transition-delay:0.3s;padding:14px 28px;color:var(--purple);width:85%"><strong>3. Apply Suppressions</strong> &mdash; Exclusions, friendly files, cache, lowfi drops<br><span style="font-size:0.6rem;color:var(--fg3)">"BM detection suppressed due to..." @ 0x10A666C0+</span></div>
+    <span class="flow-arrow" style="transition-delay:0.35s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);transition-delay:0.4s;padding:14px 28px;color:var(--yellow);width:85%"><strong>4. Deduplicate &amp; Rank</strong> &mdash; Highest severity wins: 5 &gt; 4 &gt; 2 &gt; 1<br><span style="font-size:0.6rem;color:var(--fg3)">Cloud results supersede local lowfi</span></div>
+    <span class="flow-arrow" style="transition-delay:0.45s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(57,255,20,0.2);border:2px solid rgba(57,255,20,0.5);transition-delay:0.5s;padding:14px 28px;color:var(--green);width:85%;font-weight:700"><strong>5. Final Verdict</strong> &mdash; Threat name + severity + category + action<br><span style="font-size:0.6rem;color:var(--fg2);font-weight:400">Returned to MpSvc / AMSI client / scan API caller</span></div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Severity Levels -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-red mb-1">Severity Hierarchy</h2>
+  <p class="desc mb-2">The highest severity detection wins &mdash; "threatseverity" @ 0x109DA50C</p>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;width:100%">
+    <div style="background:linear-gradient(180deg,rgba(255,82,82,0.2),var(--bg3));border:2px solid rgba(255,82,82,0.5);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <span class="num glow-red" style="font-size:2.5rem">5</span>
+      <span class="label" style="color:var(--red);font-size:0.85rem;font-weight:700">SEVERE</span>
+      <span class="label" style="font-size:0.7rem;margin-top:8px">Worms, ransomware,<br>rootkits</span>
+    </div>
+    <div style="background:linear-gradient(180deg,rgba(255,145,0,0.15),var(--bg3));border:2px solid rgba(255,145,0,0.4);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.15s" class="stat-card">
+      <span class="num glow-orange" style="font-size:2.5rem">4</span>
+      <span class="label" style="color:var(--orange);font-size:0.85rem;font-weight:700">HIGH</span>
+      <span class="label" style="font-size:0.7rem;margin-top:8px">Trojans, backdoors,<br>exploits</span>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <span class="num" style="font-size:2.5rem;color:var(--fg3)">3</span>
+      <span class="label" style="color:var(--fg3);font-size:0.85rem">(unused)</span>
+      <span class="label" style="font-size:0.7rem;margin-top:8px">Gap in the<br>severity scale</span>
+    </div>
+    <div style="background:linear-gradient(180deg,rgba(255,215,64,0.1),var(--bg3));border:2px solid rgba(255,215,64,0.3);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.25s" class="stat-card">
+      <span class="num" style="font-size:2.5rem;color:var(--yellow)">2</span>
+      <span class="label" style="color:var(--yellow);font-size:0.85rem;font-weight:700">MEDIUM</span>
+      <span class="label" style="font-size:0.7rem;margin-top:8px">Spyware, browser<br>modifiers</span>
+    </div>
+    <div style="background:linear-gradient(180deg,rgba(0,229,255,0.08),var(--bg3));border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.3s" class="stat-card">
+      <span class="num glow-cyan" style="font-size:2.5rem">1</span>
+      <span class="label" style="color:var(--cyan);font-size:0.85rem;font-weight:700">LOW</span>
+      <span class="label" style="font-size:0.7rem;margin-top:8px">Adware, PUA,<br>may be intentional</span>
+    </div>
+  </div>
+  <p class="desc mt-2" style="font-size:0.8rem;text-align:center">When multiple detections exist, the one with the <strong>highest severity</strong> becomes the final verdict. The severity scale has no level 3 &mdash; it jumps from Medium (2) to High (4).</p>
+</div>
+</div>
+
+<!-- SLIDE 4: Infrastructure Marker Filtering -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Infrastructure Marker Filtering</h2>
+  <p class="desc mb-2">!-prefixed threat names from AAGGREGATOR are building blocks &mdash; never shown to users</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">Before Filtering</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="cmt"># Raw threat_list from all stages</span>
+
+<span class="num">1.</span> <span class="str">!SuspiciousImportTable</span>     <span class="cmt">infra</span>
+<span class="num">2.</span> <span class="str">!HighEntropyText</span>           <span class="cmt">infra</span>
+<span class="num">3.</span> <span class="str">!NotSignedByTrustedPub</span>     <span class="cmt">infra</span>
+<span class="num">4.</span> <span class="fn">Trojan:Win32/AgentTesla.RPX!MTB</span>
+                               <span class="cmt">severity: 4</span>
+<span class="num">5.</span> <span class="str">!PESmallFile</span>               <span class="cmt">infra</span>
+<span class="num">6.</span> <span class="fn">TrojanDownloader:Win32/AgentTesla.DA</span>
+                               <span class="cmt">severity: 4</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">After Filtering</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="cmt"># Infrastructure markers removed</span>
+
+<span class="num">4.</span> <span class="fn">Trojan:Win32/AgentTesla.RPX!MTB</span>
+   severity: <span class="num">4</span> (High)
+
+<span class="num">6.</span> <span class="fn">TrojanDownloader:Win32/AgentTesla.DA</span>
+   severity: <span class="num">4</span> (High)
+
+<span class="cmt"># Winner (first with highest severity):</span>
+<span class="kw">&rarr;</span> <span class="fn">Trojan:Win32/AgentTesla.RPX!MTB</span></div>
+      <div class="stat-card mt-2" style="transition-delay:0.3s;border:2px solid rgba(57,255,20,0.4)">
+        <span class="num glow-green" style="font-size:0.9rem">4 infra markers filtered, 2 real threats remain</span>
+        <span class="label">Only real detections reach the user</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: Suppression Checks -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">Suppression Pipeline</h2>
+  <p class="desc mb-2">Four suppression checks applied before finalizing the verdict</p>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
+    <div style="background:var(--bg3);border:1px solid rgba(255,82,82,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--red);margin-bottom:8px;font-size:0.95rem">Exclusion Check</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5">"BM detection suppressed due to exclusion."</p>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-top:6px">@ 0x10A66880 &mdash; excludedthreats @ 0x109E4380</p>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.15s" class="stat-card">
+      <h3 style="color:var(--green);margin-bottom:8px;font-size:0.95rem">Friendly File Check</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5">"BM detection suppressed due to friendlyness." [sic]</p>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-top:6px">@ 0x10A666C0 &mdash; trusted publisher list</p>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--cyan);margin-bottom:8px;font-size:0.95rem">Cache Check</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5">"BM detection suppressed due to cache."</p>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-top:6px">@ 0x10A668F0 &mdash; previous scan result cached</p>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,145,0,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.25s" class="stat-card">
+      <h3 style="color:var(--orange);margin-bottom:8px;font-size:0.95rem">Lowfi Suppression</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5">"Lowfi detection supressed [sic]"</p>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-top:6px">@ 0x10A536B0 &mdash; cloud says clean or named attribute filter</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: Threat Name Format -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Threat Name Anatomy</h2>
+  <p class="desc mb-2">Standardized naming convention: Category:Platform/Family.Variant!Suffix</p>
+  <div class="split">
+    <div>
+      <div class="code-block" style="font-size:0.82rem"><span class="fn">Trojan</span>:<span class="str">Win32</span>/<span class="kw">AgentTesla</span>.<span class="num">RPX</span>!<span class="cmt">MTB</span>
+  <span style="color:var(--cyan)">&uarr;</span>       <span style="color:var(--green)">&uarr;</span>      <span style="color:var(--purple)">&uarr;</span>          <span style="color:var(--orange)">&uarr;</span>    <span style="color:var(--fg3)">&uarr;</span>
+  <span style="color:var(--cyan)">Category Platform  Family    Variant Suffix</span></div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+          <span class="name" style="color:var(--cyan)">Category</span>
+          <span class="detail">Trojan, Virus, Ransom, PUA, HackTool, Backdoor, Exploit...</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s">
+          <span class="name" style="color:var(--green)">Platform</span>
+          <span class="detail">Win32, Win64, MSIL, JS, VBS, Linux, MacOS, AndroidOS...</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.2s">
+          <span class="name" style="color:var(--purple)">Family</span>
+          <span class="detail">Malware family identifier (e.g., Emotet, WannaCrypt, Cobalt)</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s">
+          <span class="name" style="color:var(--orange)">Variant</span>
+          <span class="detail">Specific variant: letter (A-Z), then RPX, DA, etc.</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan)">Detection Suffixes</h3>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:6px;font-size:0.78rem;margin-top:12px">
+        <div class="stat-card" style="transition-delay:0.3s;padding:10px"><span class="num" style="font-size:0.8rem;color:var(--cyan)">!MTB</span><span class="label">ML Tree-Based</span></div>
+        <div class="stat-card" style="transition-delay:0.3s;padding:10px;text-align:left"><span class="label">Machine learning model detection</span></div>
+        <div class="stat-card" style="transition-delay:0.35s;padding:10px"><span class="num" style="font-size:0.8rem;color:var(--green)">!dha</span><span class="label">Dynamic Heuristic</span></div>
+        <div class="stat-card" style="transition-delay:0.35s;padding:10px;text-align:left"><span class="label">Behavioral analysis result</span></div>
+        <div class="stat-card" style="transition-delay:0.4s;padding:10px"><span class="num" style="font-size:0.8rem;color:var(--purple)">!rfn</span><span class="label">Real-time File</span></div>
+        <div class="stat-card" style="transition-delay:0.4s;padding:10px;text-align:left"><span class="label">Real-time file notification</span></div>
+        <div class="stat-card" style="transition-delay:0.45s;padding:10px"><span class="num" style="font-size:0.8rem;color:var(--orange)">!cl</span><span class="label">Cloud</span></div>
+        <div class="stat-card" style="transition-delay:0.45s;padding:10px;text-align:left"><span class="label">Cloud-delivered FASTPATH</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: Verdict Data Structure -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Verdict Data Structure</h2>
+  <p class="desc mb-2">The final output returned to the scan caller</p>
+  <div class="split">
+    <div class="code-block" style="font-size:0.75rem"><span class="kw">struct</span> <span class="fn">ScanVerdict</span> {
+  <span class="cmt">// Primary result</span>
+  threat_id:         <span class="kw">u32</span>,   <span class="cmt">// @ 0x109DA464</span>
+  threat_id_ex:      <span class="kw">u32</span>,   <span class="cmt">// @ 0x109E68EC</span>
+  original_threat_id:<span class="kw">u32</span>,   <span class="cmt">// @ 0x109E7A2C</span>
+  threat_name:       <span class="kw">&amp;str</span>,  <span class="cmt">// @ 0x109D44AC</span>
+  detection_name:    <span class="kw">&amp;str</span>,  <span class="cmt">// @ 0x109DD874</span>
+
+  <span class="cmt">// Classification</span>
+  severity:          <span class="kw">u8</span>,    <span class="cmt">// @ 0x109DA50C</span>
+  category:          <span class="kw">u8</span>,    <span class="cmt">// @ 0x109DA478</span>
+  threat_level:      <span class="kw">u8</span>,    <span class="cmt">// @ 0x109E4380</span>
+
+  <span class="cmt">// Recommended action</span>
+  threat_advice:     <span class="kw">&amp;str</span>,  <span class="cmt">// @ 0x109DA554</span>
+  advice_info_id:    <span class="kw">u32</span>,   <span class="cmt">// @ 0x109DA5EC</span>
+
+  <span class="cmt">// Tracking</span>
+  tracking_id:       <span class="kw">GUID</span>,  <span class="cmt">// @ 0x109D3DD0</span>
+  consolidated_ids:  <span class="kw">&amp;str</span>,  <span class="cmt">// @ 0x109D3E20</span>
+}</div>
+    <div>
+      <h3 style="color:var(--green)">Recommended Actions</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.1s">
+          <span class="name" style="color:var(--red)">Remove</span>
+          <span class="detail">Severity >= 4 (High/Severe) &mdash; delete file</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.15s">
+          <span class="name" style="color:var(--orange)">Quarantine</span>
+          <span class="detail">Severity >= 2 (Medium+) &mdash; move to quarantine</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.2s">
+          <span class="name" style="color:var(--yellow)">Allow</span>
+          <span class="detail">User override or PUA audit mode</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.25s">
+          <span class="name" style="color:var(--green)">Clean</span>
+          <span class="detail">Virus infection &mdash; remove malicious code, preserve file</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: Detection Upgrade Path -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Detection Upgrade Paths</h2>
+  <p class="desc mb-2">Detections can be upgraded, dropped, or consolidated during resolution</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+    <div style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--green);margin-bottom:8px;font-size:0.9rem">BM Upgrade</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">BM lowfi backed by threat detection &rarr; upgraded to full threat</p>
+      <div class="code-block mt-1" style="font-size:0.6rem;padding:8px"><span class="str">"BM detection upgraded to
+ threat detection."</span>
+@ <span class="num">0x10A66498</span></div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.15s" class="stat-card">
+      <h3 style="color:var(--cyan);margin-bottom:8px;font-size:0.9rem">Cloud Upgrade</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">MAPS FASTPATH SDN delivers full detection name to replace local lowfi</p>
+      <div class="code-block mt-1" style="font-size:0.6rem;padding:8px"><span class="str">"SDN recieved [sic], rescanning
+ impacted resources"</span>
+@ <span class="num">0x10A53E40</span></div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,82,82,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--red);margin-bottom:8px;font-size:0.9rem">Cloud Drop</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">Cloud says clean &rarr; SDN/TDN matched, detection dropped entirely</p>
+      <div class="code-block mt-1" style="font-size:0.6rem;padding:8px"><span class="str">"SDN/TDN matched, dropped
+ detection for %ls"</span>
+@ <span class="num">0x10A53EB0</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: Complete Pipeline -->
+<div class="slide" data-slide="9">
+<div class="slide-inner center-col">
+  <h2 class="glow-green mb-1">Complete Pipeline: Start to Verdict</h2>
+  <p class="desc mb-2">All 13 stages converging into a single definitive answer</p>
+  <div class="pipeline-track" style="max-width:1200px">
+    <div class="pipeline-dot"></div>
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+      <div class="flow-node" style="background:var(--bg4);border:1px solid rgba(255,255,255,0.1);font-size:0.65rem;padding:5px 8px;transition-delay:0.05s;margin:2px">Entry</div>
+      <span class="flow-arrow" style="transition-delay:0.05s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.1s;margin:2px;color:var(--cyan)">FRIENDLY</div>
+      <span class="flow-arrow" style="transition-delay:0.1s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.15s;margin:2px;color:var(--green)">Static</div>
+      <span class="flow-arrow" style="transition-delay:0.15s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.2s;margin:2px;color:var(--orange)">Attr</div>
+      <span class="flow-arrow" style="transition-delay:0.2s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.25s;margin:2px;color:var(--purple)">Emu</div>
+      <span class="flow-arrow" style="transition-delay:0.25s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.3s;margin:2px;color:var(--green)">Unpack</div>
+      <span class="flow-arrow" style="transition-delay:0.3s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.35s;margin:2px;color:var(--cyan)">Containers</div>
+      <span class="flow-arrow" style="transition-delay:0.35s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.4s;margin:2px;color:var(--orange)">Deob</div>
+      <span class="flow-arrow" style="transition-delay:0.4s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.45s;margin:2px;color:var(--yellow)">BRUTE</div>
+      <span class="flow-arrow" style="transition-delay:0.45s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.5s;margin:2px;color:var(--cyan)">Lua</div>
+      <span class="flow-arrow" style="transition-delay:0.5s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.55s;margin:2px;color:var(--purple)">AAGG</div>
+      <span class="flow-arrow" style="transition-delay:0.55s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.6s;margin:2px;color:var(--cyan)">MAPS</div>
+      <span class="flow-arrow" style="transition-delay:0.6s;font-size:0.9em">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.2);border:2px solid rgba(57,255,20,0.5);font-size:0.7rem;padding:5px 12px;transition-delay:0.65s;margin:2px;color:var(--green);font-weight:700">VERDICT</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px;width:100%;max-width:1000px">
+    <div class="stat-card" style="transition-delay:0.7s"><span class="num glow-green" style="font-size:0.8rem">threatname</span><span class="label">@ 0x109D44AC</span></div>
+    <div class="stat-card" style="transition-delay:0.75s"><span class="num glow-orange" style="font-size:0.8rem">threatseverity</span><span class="label">@ 0x109DA50C</span></div>
+    <div class="stat-card" style="transition-delay:0.8s"><span class="num glow-purple" style="font-size:0.8rem">threatcategory</span><span class="label">@ 0x109DA478</span></div>
+    <div class="stat-card" style="transition-delay:0.85s"><span class="num glow-cyan" style="font-size:0.8rem">threatadvice</span><span class="label">@ 0x109DA554</span></div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 10: Key Takeaways -->
+<div class="slide" data-slide="10">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <h2 class="glow-green mb-1">Key Takeaways</h2>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:18px;border-left:3px solid var(--green)">
+      <h3 style="color:var(--green);font-size:0.9rem">Highest Severity Wins</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">Multiple detections merged. Severity ranking: Severe(5) > High(4) > Medium(2) > Low(1). No level 3.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:18px;border-left:3px solid var(--orange)">
+      <h3 style="color:var(--orange);font-size:0.9rem">Infra Markers Filtered</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">!-prefixed AAGGREGATOR building blocks are permanently removed. Users only see real threat names.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:18px;border-left:3px solid var(--purple)">
+      <h3 style="color:var(--purple);font-size:0.9rem">Four Suppression Layers</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">Exclusions, friendly file check, scan cache, and cloud-directed lowfi drops all reduce false positives.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:18px;border-left:3px solid var(--cyan)">
+      <h3 style="color:var(--cyan);font-size:0.9rem">Cloud Can Override</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">FASTPATH SDN/TDN from MAPS can upgrade lowfi to full detection or drop false positives entirely.</p>
+    </div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">All data from reverse engineering mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

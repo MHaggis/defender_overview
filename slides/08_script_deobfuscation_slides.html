@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 8: Script Deobfuscation (NScript) -- Defender Scan Pipeline</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--orange),var(--red));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.glow-red{color:var(--red);text-shadow:0 0 30px rgba(255,82,82,0.4)}
+.glow-yellow{color:var(--yellow);text-shadow:0 0 30px rgba(255,215,64,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--orange);box-shadow:0 0 12px var(--orange);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Defender Scan Pipeline &mdash; Stage 8</p>
+  <h1 class="glow-orange">Script Deobfuscation</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">NScript: Multi-pass fixed-point iteration across 4 scripting languages</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">4</span><span class="label">Languages</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan" data-count="1358">0</span><span class="label">Transforms</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">32</span><span class="label">Max Passes</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple" data-count="75304">0</span><span class="label">Lines of Logic</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">NScript:ForceTypePS @ 0x10A7813C &bull; NScript:ForceTypeVBS @ 0x10A781C8 &bull; mpengine.dll</p>
+</div>
+</div>
+
+<!-- SLIDE 2: The Four Languages -->
+<div class="slide" data-slide="2">
+<div class="slide-inner center-col">
+  <h2 class="glow-orange mb-2">The Four Language Engines</h2>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1400px">
+    <div class="stat-card" style="transition-delay:0.1s;border-top:3px solid var(--cyan)">
+      <span class="num glow-cyan" style="font-size:1.5rem">PowerShell</span>
+      <span class="label" style="margin-top:8px">22,856 lines of transforms</span>
+      <div class="code-block mt-1" style="font-size:0.65rem;padding:8px;text-align:left"><span class="str">"PowerShell_"</span> @ <span class="num">0x109C6794</span>
+<span class="str">"NScript:ForceTypePS"</span>
+  @ <span class="num">0x10A7813C</span>
+<span class="str">"MpIsPowerShellAMSIScan"</span>
+  @ <span class="num">0x10A783A8</span></div>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-top:3px solid var(--green)">
+      <span class="num glow-green" style="font-size:1.5rem">JScript</span>
+      <span class="label" style="margin-top:8px">20,671 lines of transforms</span>
+      <div class="code-block mt-1" style="font-size:0.65rem;padding:8px;text-align:left"><span class="str">"JScript"</span> @ <span class="num">0x109C6760</span>
+<span class="str">"NScript:ForceTypeJS"</span>
+  @ <span class="num">0x10A781F8</span>
+<span class="str">"NScript:JSEnableEmulation"</span>
+  @ <span class="num">0x10A783C0</span></div>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;border-top:3px solid var(--purple)">
+      <span class="num glow-purple" style="font-size:1.5rem">VBScript</span>
+      <span class="label" style="margin-top:8px">17,869 lines of transforms</span>
+      <div class="code-block mt-1" style="font-size:0.65rem;padding:8px;text-align:left"><span class="str">"VBScript"</span> @ <span class="num">0x109C6778</span>
+<span class="str">"NScript:ForceTypeVBS"</span>
+  @ <span class="num">0x10A781C8</span></div>
+    </div>
+    <div class="stat-card" style="transition-delay:0.4s;border-top:3px solid var(--orange)">
+      <span class="num glow-orange" style="font-size:1.5rem">Batch</span>
+      <span class="label" style="margin-top:8px">13,908 lines of transforms</span>
+      <div class="code-block mt-1" style="font-size:0.65rem;padding:8px;text-align:left"><span class="str">"NScript:ForceTypeBAT"</span>
+  @ <span class="num">0x10A78168</span>
+<span class="cmt">// + Python support:</span>
+<span class="str">"NScript:ForceTypePY"</span>
+  @ <span class="num">0x10A783F4</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Fixed-Point Iteration -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Multi-Pass Fixed-Point Iteration</h2>
+  <p class="desc mb-2">Keep deobfuscating until no more changes occur (or 32 passes)</p>
+  <div class="split">
+    <div>
+      <div class="pipeline-track" style="padding:16px">
+        <div class="pipeline-dot" style="background:var(--orange);box-shadow:0 0 12px var(--orange)"></div>
+        <div style="display:flex;flex-direction:column;gap:8px;position:relative;z-index:1">
+          <div class="flow-node" style="background:rgba(255,145,0,0.15);border:1px solid rgba(255,145,0,0.4);padding:10px;transition-delay:0.1s;text-align:left">
+            <strong style="color:var(--orange)">Pass 1:</strong> <span style="color:var(--fg2)">Base64 decode, alias resolution</span>
+          </div>
+          <div style="text-align:center;color:var(--fg3);font-size:0.8em">&darr; scan intermediate &darr;</div>
+          <div class="flow-node" style="background:rgba(255,145,0,0.15);border:1px solid rgba(255,145,0,0.4);padding:10px;transition-delay:0.2s;text-align:left">
+            <strong style="color:var(--orange)">Pass 2:</strong> <span style="color:var(--fg2)">String concat, replace operations</span>
+          </div>
+          <div style="text-align:center;color:var(--fg3);font-size:0.8em">&darr; scan intermediate &darr;</div>
+          <div class="flow-node" style="background:rgba(255,145,0,0.15);border:1px solid rgba(255,145,0,0.4);padding:10px;transition-delay:0.3s;text-align:left">
+            <strong style="color:var(--orange)">Pass 3:</strong> <span style="color:var(--fg2)">Variable substitution, IEX unwrap</span>
+          </div>
+          <div style="text-align:center;color:var(--fg3);font-size:0.8em">&darr; hash unchanged = fixed point &darr;</div>
+          <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.4);padding:10px;transition-delay:0.4s;font-weight:700;color:var(--green)">
+            DONE: Normalized script output
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="code-block" style="font-size:0.72rem"><span class="cmt">// Fixed-point algorithm</span>
+<span class="kw">for</span> pass <span class="kw">in</span> <span class="num">0</span>..<span class="num">32</span> {
+    prev_hash = <span class="fn">crc32</span>(script);
+    script = <span class="fn">apply_transforms</span>(
+        script, language);
+
+    <span class="cmt">// Scan each intermediate form</span>
+    <span class="fn">scan_intermediate</span>(script);
+    <span class="cmt">//  - Static sigs (Stage 3)</span>
+    <span class="cmt">//  - BRUTE match (Stage 9)</span>
+    <span class="cmt">//  - Lua scripts (Stage 10)</span>
+
+    <span class="kw">if</span> <span class="fn">crc32</span>(script) == prev_hash {
+        <span class="kw">break</span>; <span class="cmt">// fixed point</span>
+    }
+}
+
+<span class="cmt">// Queue final normalized form</span>
+<span class="cmt">// "NScript:ForceQueueNormalizedVFO"</span>
+<span class="cmt">//   @ 0x10A78630</span>
+<span class="fn">vfo_add_buffer</span>(normalized);</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: PowerShell Deobfuscation -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">PowerShell Deobfuscation</h2>
+  <p class="desc mb-2">The largest engine: 22,856 lines handling 15+ obfuscation categories</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--cyan);margin-bottom:10px">Common Transform Patterns</h3>
+      <div class="code-block" style="font-size:0.68rem"><span class="cmt">// Base64 Encoded Command</span>
+<span class="kw">IN:</span>  powershell <span class="str">-enc SQBuAHYAbwBr...</span>
+<span class="kw">OUT:</span> Invoke-Expression <span class="str">"hello"</span>
+
+<span class="cmt">// Format String (-f operator)</span>
+<span class="kw">IN:</span>  <span class="str">'{2}{0}{1}' -f 'oke-','Expr','Inv'</span>
+<span class="kw">OUT:</span> <span class="str">'Invoke-Expression'</span>
+
+<span class="cmt">// Character Array</span>
+<span class="kw">IN:</span>  [char[]]@(<span class="num">73,110,118</span>) -join <span class="str">''</span>
+<span class="kw">OUT:</span> <span class="str">'Inv'</span>
+
+<span class="cmt">// Backtick Removal</span>
+<span class="kw">IN:</span>  I`nv`o`ke-E`xp`ression
+<span class="kw">OUT:</span> Invoke-Expression
+
+<span class="cmt">// Alias Resolution</span>
+<span class="kw">IN:</span>  iex (gc C:\payload.txt)
+<span class="kw">OUT:</span> Invoke-Expression (Get-Content ...)</div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan);margin-bottom:10px">Also Handles</h3>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+          <span class="detail">String concatenation folding (<code>'hel'+'lo'</code>)</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.15s">
+          <span class="detail">Replace() chain evaluation</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.2s">
+          <span class="detail">DeflateStream decompression</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.25s">
+          <span class="detail">SecureString decryption</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.3s">
+          <span class="detail">Environment variable expansion</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.35s">
+          <span class="detail">IEX / Invoke-Expression unwrapping</span>
+        </div>
+      </div>
+      <div class="stat-card mt-2" style="transition-delay:0.4s;border:1px solid rgba(0,229,255,0.3)">
+        <span class="num" style="font-size:0.85rem;color:var(--cyan)">MpIsPowerShellAMSIScan @ 0x10A783A8</span>
+        <span class="label">AMSI provides pre-parsed AST with runtime variable values</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: VBScript & JScript -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">VBScript &amp; JScript Engines</h2>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--purple)">VBScript (17,869 lines)</h3>
+      <div class="code-block" style="font-size:0.68rem"><span class="cmt">// Chr() concatenation</span>
+<span class="kw">IN:</span>  Execute(Chr(<span class="num">73</span>) &amp; Chr(<span class="num">110</span>) &amp; Chr(<span class="num">118</span>))
+<span class="kw">OUT:</span> Execute(<span class="str">"Inv"</span>)
+
+<span class="cmt">// StrReverse</span>
+<span class="kw">IN:</span>  Execute(StrReverse(<span class="str">"ekovnI"</span>))
+<span class="kw">OUT:</span> Execute(<span class="str">"Invoke"</span>)
+
+<span class="cmt">// Hex literals</span>
+<span class="kw">IN:</span>  x = &amp;H49 &amp; &amp;H6E &amp; &amp;H76
+<span class="kw">OUT:</span> x = <span class="str">"Inv"</span></div>
+      <div class="engine-bar mt-1" style="border-left-color:var(--purple);transition-delay:0.2s">
+        <span class="detail">Replace, Mid/Left/Right, Split/Join, WScript.Shell extraction</span>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">JScript (20,671 lines)</h3>
+      <div class="code-block" style="font-size:0.68rem"><span class="cmt">// String.fromCharCode</span>
+<span class="kw">IN:</span>  eval(String.fromCharCode(<span class="num">73,110,118</span>))
+<span class="kw">OUT:</span> eval(<span class="str">"Inv"</span>)
+
+<span class="cmt">// Hex/Unicode escapes</span>
+<span class="kw">IN:</span>  eval(<span class="str">"\x49\x6e\x76\x6f\x6b\x65"</span>)
+<span class="kw">OUT:</span> eval(<span class="str">"Invoke"</span>)
+
+<span class="cmt">// JScript.Encode decoding</span>
+<span class="kw">IN:</span>  #@~^AAAA==...^#~@
+<span class="kw">OUT:</span> (decoded plain JScript)</div>
+      <div class="engine-bar mt-1" style="border-left-color:var(--green);transition-delay:0.2s">
+        <span class="detail">eval, unescape, Array.join, ActiveXObject tracking</span>
+      </div>
+      <div class="stat-card mt-1" style="transition-delay:0.3s;border:1px solid rgba(57,255,20,0.3)">
+        <span class="num" style="font-size:0.8rem;color:var(--green)">NScript:JSEnableEmulation @ 0x10A783C0</span>
+        <span class="label">Lightweight JS interpreter for sandboxed execution</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: Batch & Force Types -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-yellow mb-1">Batch Engine &amp; Force Type Controls</h2>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--yellow)">Batch Deobfuscation (13,908 lines)</h3>
+      <div class="code-block" style="font-size:0.68rem"><span class="cmt">// Caret escape removal</span>
+<span class="kw">IN:</span>  s^e^t x=h^e^l^l^o
+<span class="kw">OUT:</span> set x=hello
+
+<span class="cmt">// Variable substring extraction</span>
+<span class="kw">IN:</span>  set x=abcdefg &amp;&amp; echo %x:~2,3%
+<span class="kw">OUT:</span> echo cde
+
+<span class="cmt">// Variable substitution</span>
+<span class="kw">IN:</span>  echo %x:world=earth%
+<span class="kw">OUT:</span> echo hello earth
+
+<span class="cmt">// Delayed expansion</span>
+<span class="kw">IN:</span>  cmd /v:on /c "set x=hi &amp; echo !x!"
+<span class="kw">OUT:</span> echo hi
+
+<span class="cmt">// Environment variable expansion</span>
+<span class="kw">IN:</span>  %COMSPEC% /c echo test
+<span class="kw">OUT:</span> C:\Windows\...\cmd.exe /c echo test</div>
+    </div>
+    <div>
+      <h3 style="color:var(--yellow)">NScript:ForceType* Controls</h3>
+      <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s;padding:8px 12px">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem;min-width:100px">ForceTypePS</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A7813C</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.13s;padding:8px 12px">
+          <span class="name" style="color:var(--purple);font-size:0.8rem;min-width:100px">ForceTypeVBS</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A781C8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.16s;padding:8px 12px">
+          <span class="name" style="color:var(--green);font-size:0.8rem;min-width:100px">ForceTypeJS</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A781F8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.19s;padding:8px 12px">
+          <span class="name" style="color:var(--yellow);font-size:0.8rem;min-width:100px">ForceTypeBAT</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A78168</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.22s;padding:8px 12px">
+          <span class="name" style="color:var(--orange);font-size:0.8rem;min-width:100px">ForceTypePY</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A783F4</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--fg3);transition-delay:0.25s;padding:8px 12px">
+          <span class="name" style="color:var(--fg2);font-size:0.8rem;min-width:100px">ForceTypeIRC</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A78198</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.28s;padding:8px 12px">
+          <span class="name" style="color:var(--red);font-size:0.8rem;min-width:100px">SkipTypeID</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A78388</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.31s;padding:8px 12px">
+          <span class="name" style="color:var(--red);font-size:0.8rem;min-width:100px">NoParsingLimits</span>
+          <span class="detail mono" style="font-size:0.7rem">@ 0x10A78370</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: JS Feature Extraction -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">JScript Feature Extraction</h2>
+  <p class="desc mb-2">20+ structural features extracted for ML-based classification</p>
+  <div class="split">
+    <div>
+      <div style="display:grid;grid-template-columns:1fr;gap:5px">
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.05s;padding:7px 12px">
+          <span class="detail"><code>js_hasBigString</code> @ <code>0x109324B4</code> &mdash; Long encoded payloads</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.1s;padding:7px 12px">
+          <span class="detail"><code>js_hasSelfModification</code> @ <code>0x109324CC</code> &mdash; eval()-based codegen</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s;padding:7px 12px">
+          <span class="detail"><code>js_triggersNormalization</code> @ <code>0x109324EC</code> &mdash; Needs deobfuscation</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.2s;padding:7px 12px">
+          <span class="detail"><code>js_hasStringFuncs</code> @ <code>0x10932510</code> &mdash; String manipulation</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.25s;padding:7px 12px">
+          <span class="detail"><code>js_manySmallComments</code> @ <code>0x109323B0</code> &mdash; Comment obfuscation</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.3s;padding:7px 12px">
+          <span class="detail"><code>js_75percentOfFileComments</code> @ <code>0x10932490</code> &mdash; Stego in comments</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.35s;padding:7px 12px">
+          <span class="detail"><code>js_75percentOfFileSpaceRuns</code> @ <code>0x10A786AC</code> &mdash; Whitespace encoding</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.4s;padding:7px 12px">
+          <span class="detail"><code>js_manyIdenticalLengthComments</code> @ <code>0x10A787E4</code> &mdash; Stego pattern</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--green);margin-bottom:10px">What These Detect</h3>
+      <div style="display:grid;grid-template-columns:1fr;gap:10px">
+        <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:14px;border-left:3px solid var(--green)">
+          <span class="label" style="color:var(--green);font-weight:700">Encoded Payloads</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Very long strings = Base64 or hex-encoded malware payloads</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:14px;border-left:3px solid var(--cyan)">
+          <span class="label" style="color:var(--cyan);font-weight:700">Comment Steganography</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Identical-length comments hide encoded data in comment blocks</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:14px;border-left:3px solid var(--purple)">
+          <span class="label" style="color:var(--purple);font-weight:700">Whitespace Encoding</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Executable code hidden in whitespace patterns (space/tab encoding)</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:14px;border-left:3px solid var(--orange)">
+          <span class="label" style="color:var(--orange);font-weight:700">Self-Modification</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">eval()/Function() generating code at runtime to evade static scan</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: Intermediate Scanning -->
+<div class="slide" data-slide="8">
+<div class="slide-inner center-col">
+  <h2 class="glow-purple mb-1">Each Layer Is Scanned</h2>
+  <p class="desc mb-2">Every intermediate deobfuscation result goes through multiple detection engines</p>
+  <div class="pipeline-track" style="max-width:1200px;width:100%">
+    <div class="pipeline-dot" style="background:var(--purple);box-shadow:0 0 12px var(--purple)"></div>
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+      <div class="flow-node" style="background:rgba(255,145,0,0.15);border:1px solid rgba(255,145,0,0.4);font-size:0.72rem;padding:8px 12px;transition-delay:0.05s;margin:4px;color:var(--orange)">Obfuscated Input</div>
+      <span class="flow-arrow" style="transition-delay:0.1s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.72rem;padding:8px 12px;transition-delay:0.15s;margin:4px;color:var(--orange)">Pass 1 Output</div>
+      <span class="flow-arrow" style="transition-delay:0.15s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.72rem;padding:8px 12px;transition-delay:0.2s;margin:4px;color:var(--green)">Static Sigs</div>
+      <span class="flow-arrow" style="transition-delay:0.2s">+</span>
+      <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);font-size:0.72rem;padding:8px 12px;transition-delay:0.25s;margin:4px;color:var(--yellow)">BRUTE</div>
+      <span class="flow-arrow" style="transition-delay:0.25s">+</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.72rem;padding:8px 12px;transition-delay:0.3s;margin:4px;color:var(--cyan)">Lua</div>
+      <span class="flow-arrow" style="transition-delay:0.3s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.72rem;padding:8px 12px;transition-delay:0.35s;margin:4px;color:var(--orange)">Pass 2...</div>
+      <span class="flow-arrow" style="transition-delay:0.35s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.5);font-size:0.72rem;padding:8px 14px;transition-delay:0.4s;margin:4px;color:var(--green);font-weight:700">Fixed Point</div>
+    </div>
+  </div>
+  <div class="stat-grid stat-grid-3 mt-3" style="max-width:900px;width:100%">
+    <div class="stat-card" style="transition-delay:0.1s">
+      <span class="num glow-green">Static Cascade</span>
+      <span class="label">All 11 static engines scan each intermediate form</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s">
+      <span class="num glow-yellow">NSCRIPT_BRUTE</span>
+      <span class="label">@ 0x10986AB0 &mdash; Raw pattern matching on deobfuscated text</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s">
+      <span class="num glow-cyan">Lua Scripts</span>
+      <span class="label">GetNormalizedScript() @ 0x1097F1E4 for custom analysis</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: AMSI Integration -->
+<div class="slide" data-slide="9">
+<div class="slide-inner">
+  <h2 class="glow-red mb-1">AMSI Integration</h2>
+  <p class="desc mb-2">Real-time script content from the OS Antimalware Scan Interface</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--red);margin-bottom:12px">AMSI Providers</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+          <span class="name" style="color:var(--cyan)">PowerShell</span>
+          <span class="detail">Primary AMSI source. Pre-parsed AST with runtime variables</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.15s">
+          <span class="name" style="color:var(--purple)">VBScript/JScript</span>
+          <span class="detail">Via Windows Script Host integration</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.2s">
+          <span class="name" style="color:var(--green)">.NET Runtime</span>
+          <span class="detail">Assembly.Load() buffer scanning</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s">
+          <span class="name" style="color:var(--orange)">VBA Macros</span>
+          <span class="detail">Office macro content via AMSI</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--red);margin-bottom:12px">AMSI Advantages</h3>
+      <div style="display:grid;grid-template-columns:1fr;gap:10px">
+        <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:14px;border-left:3px solid var(--red)">
+          <span class="label" style="color:var(--red);font-weight:700">Runtime Context</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Variable values resolved by the language runtime</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:14px;border-left:3px solid var(--red)">
+          <span class="label" style="color:var(--red);font-weight:700">Pre-Parsed AST</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">PowerShell provides the abstract syntax tree directly</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:14px;border-left:3px solid var(--red)">
+          <span class="label" style="color:var(--red);font-weight:700">Process Context</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Knows which process submitted the content</span>
+        </div>
+      </div>
+      <div class="code-block mt-2" style="font-size:0.7rem"><span class="str">"MpIsPowerShellAMSIScan"</span>
+  @ <span class="num">0x10A783A8</span>
+<span class="str">"MpMaxScriptParseLength"</span>
+  @ <span class="num">0x1097E8BC</span> <span class="cmt">(UTF-16)</span>
+<span class="str">"MpMinScriptNormalization"</span>
+  @ <span class="num">0x1097E6D8</span> <span class="cmt">(UTF-16)</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 10: Signature Types -->
+<div class="slide" data-slide="10">
+<div class="slide-inner center-col">
+  <h2 class="glow-orange mb-1">Script Signature Types</h2>
+  <p class="desc mb-2">Dedicated signature types for NScript content</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;border-top:3px solid var(--orange);padding:20px">
+      <span class="num" style="font-size:1rem;color:var(--orange)">NSCRIPT_BRUTE</span>
+      <span class="label mono">@ 0x10986AB0</span>
+      <p style="font-size:0.75rem;color:var(--fg2);margin-top:8px">BRUTE matching specifically on deobfuscated script text</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;border-top:3px solid var(--cyan);padding:20px">
+      <span class="num" style="font-size:1rem;color:var(--cyan)">NSCRIPT_SP</span>
+      <span class="label mono">@ 0x10986328</span>
+      <p style="font-size:0.75rem;color:var(--fg2);margin-top:8px">NScript signature pack for script-specific patterns</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-top:3px solid var(--green);padding:20px">
+      <span class="num" style="font-size:1rem;color:var(--green)">NSCRIPT_CURE</span>
+      <span class="label mono">@ 0x10986F5C</span>
+      <p style="font-size:0.75rem;color:var(--fg2);margin-top:8px">Remediation signatures for cleaning detected scripts</p>
+    </div>
+  </div>
+  <div class="split mt-3" style="max-width:1200px;width:100%">
+    <div class="stat-card" style="transition-delay:0.25s;border:1px solid rgba(255,145,0,0.3);padding:16px;text-align:left">
+      <h3 style="color:var(--orange);font-size:0.9rem;margin-bottom:6px">Feature Extraction for BRUTE</h3>
+      <div class="code-block" style="font-size:0.68rem;padding:8px"><span class="str">"BRUTE:VBS:Feature:"</span> @ <span class="num">0x10A54D08</span>
+<span class="str">"BRUTE:JS:Feature:"</span>  @ <span class="num">0x10A54D1C</span>
+<span class="str">"BRUTE:PDF:Feature:"</span> @ <span class="num">0x10A54CC8</span></div>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;border:1px solid rgba(0,229,255,0.3);padding:16px;text-align:left">
+      <h3 style="color:var(--cyan);font-size:0.9rem;margin-bottom:6px">Lua API Access</h3>
+      <div class="code-block" style="font-size:0.68rem;padding:8px"><span class="fn">GetNormalizedScript</span> @ <span class="num">0x1097F1E4</span>
+<span class="cmt">// Lua scripts analyze deobfuscated text</span>
+<span class="cmt">// mp.GetNormalizedScript()</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 11: Summary -->
+<div class="slide" data-slide="11">
+<div class="slide-inner center-col" style="justify-content:center">
+  <h2 class="glow-orange mb-2">Script Deobfuscation: Summary</h2>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.05s"><span class="num glow-cyan">22,856</span><span class="label">PowerShell Lines</span></div>
+    <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-green">20,671</span><span class="label">JScript Lines</span></div>
+    <div class="stat-card" style="transition-delay:0.15s"><span class="num glow-purple">17,869</span><span class="label">VBScript Lines</span></div>
+    <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-orange">13,908</span><span class="label">Batch Lines</span></div>
+    <div class="stat-card" style="transition-delay:0.25s"><span class="num glow-cyan" data-count="1358">0</span><span class="label">Total Transforms</span></div>
+    <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-green">32</span><span class="label">Max Passes</span></div>
+    <div class="stat-card" style="transition-delay:0.35s"><span class="num glow-purple">20+</span><span class="label">JS Features</span></div>
+    <div class="stat-card" style="transition-delay:0.4s"><span class="num glow-orange">6</span><span class="label">Language Types</span></div>
+  </div>
+  <p class="mt-3 desc" style="max-width:800px">NScript is the deobfuscation backbone of Defender, systematically unwinding even deeply nested script obfuscation through fixed-point iteration. Each intermediate layer is scanned, and the normalized output feeds into BRUTE matching and Lua evaluation.</p>
+  <p class="mono mt-2" style="font-size:0.75rem;color:var(--fg3)">NScript:ForceTypePS @ 0x10A7813C &bull; 1,358 transforms &bull; 75,304 lines of logic &bull; mpengine.dll</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

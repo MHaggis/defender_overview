@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 9: BRUTE Matching -- Defender Scan Pipeline</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--yellow),var(--orange));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.glow-red{color:var(--red);text-shadow:0 0 30px rgba(255,82,82,0.4)}
+.glow-yellow{color:var(--yellow);text-shadow:0 0 30px rgba(255,215,64,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--yellow);box-shadow:0 0 12px var(--yellow);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Defender Scan Pipeline &mdash; Stage 9</p>
+  <h1 class="glow-yellow">BRUTE Matching</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">Format-agnostic hash-string matching for polymorphic malware detection</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-yellow" data-count="162">0</span><span class="label">Signature Types</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan">8</span><span class="label">Caller Contexts</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">10+</span><span class="label">HSTR Variants</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">3</span><span class="label">Feature Prefixes</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">SIGNATURE_TYPE_BRUTE @ 0x10986D8C &bull; HSTR_WEIGHT @ 0x1097C6D0 &bull; mpengine.dll</p>
+</div>
+</div>
+
+<!-- SLIDE 2: BRUTE vs PEHSTR -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-yellow mb-1">BRUTE vs. PEHSTR</h2>
+  <p class="desc mb-2">Two complementary matching approaches: format-specific vs. format-agnostic</p>
+  <div class="split">
+    <div>
+      <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:20px;border-top:3px solid var(--purple)">
+        <h3 style="color:var(--purple);font-size:1.1rem;margin-bottom:10px">PEHSTR (Stage 3)</h3>
+        <div style="font-size:0.8rem;color:var(--fg2);line-height:1.8">
+          <div>Format-aware: PE sections only</div>
+          <div>Targets .text, .data, imports, exports</div>
+          <div><code>SIGNATURE_TYPE_PEHSTR</code> @ <code>0x109869C8</code></div>
+          <div>Fast: searches structured regions</div>
+          <div>Cannot see packed/encrypted content</div>
+          <div><strong style="color:var(--purple)">Primary for known PE malware</strong></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:20px;border-top:3px solid var(--yellow)">
+        <h3 style="color:var(--yellow);font-size:1.1rem;margin-bottom:10px">BRUTE (Stage 9)</h3>
+        <div style="font-size:0.8rem;color:var(--fg2);line-height:1.8">
+          <div>Format-agnostic: raw bytes</div>
+          <div>Targets the entire data stream</div>
+          <div><code>SIGNATURE_TYPE_BRUTE</code> @ <code>0x10986D8C</code></div>
+          <div>Thorough: searches everything</div>
+          <div>Works on unpacked/deobfuscated content</div>
+          <div><strong style="color:var(--yellow)">Primary for polymorphic/script malware</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="stat-card mt-2" style="transition-delay:0.3s;border:2px solid rgba(255,215,64,0.4);max-width:800px">
+    <span class="num glow-yellow" style="font-size:1rem">PEHSTR catches fast at Stage 3 -- BRUTE catches deep at Stage 9</span>
+    <span class="label">BRUTE sees content after emulation, extraction, and deobfuscation</span>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: HSTR Matching Engine -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">HSTR Matching Engine</h2>
+  <p class="desc mb-2">Rolling hash with weighted scoring -- the core of BRUTE matching</p>
+  <div class="split">
+    <div>
+      <div class="pipeline-track" style="padding:16px">
+        <div class="pipeline-dot"></div>
+        <div style="display:flex;flex-direction:column;gap:6px;position:relative;z-index:1">
+          <div class="flow-node" style="background:var(--bg4);border:1px solid rgba(255,255,255,0.15);padding:10px;transition-delay:0.05s;text-align:left">
+            <strong>1.</strong> Slide rolling hash window over input bytes
+          </div>
+          <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);padding:10px;transition-delay:0.1s;text-align:left;color:var(--yellow)">
+            <strong>2.</strong> Hash table lookup (O(1) per position)
+          </div>
+          <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);padding:10px;transition-delay:0.15s;text-align:left;color:var(--cyan)">
+            <strong>3.</strong> Full string comparison to confirm match
+          </div>
+          <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);padding:10px;transition-delay:0.2s;text-align:left;color:var(--green)">
+            <strong>4.</strong> Record (sig_id, offset, length, weight)
+          </div>
+          <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);padding:10px;transition-delay:0.25s;text-align:left;color:var(--purple)">
+            <strong>5.</strong> Accumulate weight per signature group
+          </div>
+          <div class="flow-node" style="background:rgba(255,145,0,0.15);border:2px solid rgba(255,145,0,0.4);padding:10px;transition-delay:0.3s;text-align:left;color:var(--orange);font-weight:700">
+            <strong>6.</strong> Threshold check: weight >= limit = MATCH
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="code-block" style="font-size:0.72rem"><span class="cmt">// Core matching loop</span>
+<span class="kw">for</span> offset <span class="kw">in</span> <span class="num">0</span>..data.len() {
+    <span class="kw">let</span> hash = <span class="fn">rolling_hash</span>(
+        data, offset);
+    <span class="kw">let</span> entry = <span class="fn">hstr_lookup</span>(
+        &amp;table, hash);
+    <span class="kw">if</span> entry.is_none() { <span class="kw">continue</span>; }
+
+    <span class="cmt">// Confirm: full string compare</span>
+    <span class="kw">if</span> !<span class="fn">memcmp</span>(data + offset,
+              entry.pattern) {
+        <span class="kw">continue</span>;
+    }
+
+    <span class="cmt">// Record match</span>
+    matches.<span class="fn">push</span>(Match {
+        sig_id: entry.sig_id,
+        offset, weight: entry.weight,
+    });
+
+    <span class="cmt">// Accumulate group weight</span>
+    groups[entry.group] += entry.weight;
+    <span class="cmt">// HSTR_WEIGHT @ 0x1097C6D0</span>
+}</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: Weight-Based Scoring -->
+<div class="slide" data-slide="4">
+<div class="slide-inner center-col">
+  <h2 class="glow-orange mb-1">Weight-Based Scoring</h2>
+  <p class="desc mb-2">Multiple weak indicators combine to exceed a threshold -- reducing false positives</p>
+  <div style="max-width:1000px;width:100%">
+    <div class="code-block" style="font-size:0.78rem;text-align:left"><span class="cmt">// Example: TrojanDropper:Script/Obfuse detection</span>
+<span class="cmt">// Signature group with 6 patterns and threshold 80</span>
+
+<span class="fn">Pattern</span>                    <span class="fn">Weight</span>    <span class="fn">Found?</span>
+<span class="str">"WScript.Shell"</span>            +<span class="num">30</span>       <span class="green">YES</span>
+<span class="str">"ActiveXObject"</span>            +<span class="num">20</span>       <span class="cmt">no</span>
+<span class="str">"eval(unescape"</span>            +<span class="num">40</span>       <span class="green">YES</span>
+<span class="str">"fromCharCode"</span>             +<span class="num">15</span>       <span class="green">YES</span>
+<span class="str">"XMLHTTP"</span>                  +<span class="num">10</span>       <span class="cmt">no</span>
+<span class="str">"%TEMP%"</span>                   +<span class="num">5</span>        <span class="cmt">no</span>
+                           ------
+<span class="fn">Total Weight:</span>              <span class="num">85</span>
+<span class="fn">Threshold:</span>                 <span class="num">80</span>
+
+<span class="kw">Result:</span> <span class="num">85</span> >= <span class="num">80</span> <span class="str">==> MATCH</span> <span class="cmt">// 3 of 6 patterns suffice</span></div>
+  </div>
+  <div class="stat-grid stat-grid-3 mt-2" style="max-width:900px;width:100%">
+    <div class="stat-card" style="transition-delay:0.1s">
+      <span class="num glow-yellow">Weighted</span>
+      <span class="label">Not all patterns need to match -- strong signals outweigh weak ones</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s">
+      <span class="num glow-green">Polymorphic</span>
+      <span class="label">Handles variants that change some patterns but keep core behavior</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s">
+      <span class="num glow-cyan">Graduated</span>
+      <span class="label">Different confidence levels without requiring exact match sets</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: HSTR Caller Contexts -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">8 HSTR Caller Contexts</h2>
+  <p class="desc mb-2"><code>GetHSTRCallerId</code> @ <code>0x1097F460</code> &mdash; Different matching profiles per pipeline stage</p>
+  <div class="split">
+    <div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.05s">
+          <span class="name" style="color:var(--yellow);min-width:170px">HSTR_CALLER_FILE</span>
+          <span class="detail mono">@ 0x109812C0 &mdash; File scan context</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+          <span class="name" style="color:var(--cyan);min-width:170px">HSTR_CALLER_EMS</span>
+          <span class="detail mono">@ 0x109812D4 &mdash; Emulator context</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s">
+          <span class="name" style="color:var(--green);min-width:170px">HSTR_CALLER_HOOKWOW</span>
+          <span class="detail mono">@ 0x109812F8 &mdash; WoW64 hook</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.2s">
+          <span class="name" style="color:var(--purple);min-width:170px">HSTR_CALLER_SMS</span>
+          <span class="detail mono">@ 0x10981308 &mdash; System monitor</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s">
+          <span class="name" style="color:var(--orange);min-width:170px">HSTR_CALLER_CMDLINE</span>
+          <span class="detail mono">@ 0x1098131C &mdash; Command line</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.3s">
+          <span class="name" style="color:var(--red);min-width:170px">HSTR_CALLER_TSKSCHED</span>
+          <span class="detail mono">@ 0x1098133C &mdash; Task scheduler</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--pink);transition-delay:0.35s">
+          <span class="name" style="color:var(--pink);min-width:170px">HSTR_CALLER_BITS</span>
+          <span class="detail mono">@ 0x10981350 &mdash; BITS job cmdline</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--fg3);transition-delay:0.4s">
+          <span class="name" style="color:var(--fg2);min-width:170px">HSTR_CALLER_UNKNOWN</span>
+          <span class="detail mono">@ 0x109812AC &mdash; Default context</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--purple);margin-bottom:12px">Why Caller Context Matters</h3>
+      <div style="display:grid;grid-template-columns:1fr;gap:10px">
+        <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:14px;border-left:3px solid var(--yellow)">
+          <span class="label" style="color:var(--yellow);font-weight:700">Signature Selection</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Different caller IDs load different signature subsets from the VDM</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:14px;border-left:3px solid var(--cyan)">
+          <span class="label" style="color:var(--cyan);font-weight:700">Matching Parameters</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Weight thresholds and exhaustive mode can vary by context</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:14px;border-left:3px solid var(--green)">
+          <span class="label" style="color:var(--green);font-weight:700">False Positive Tuning</span>
+          <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Command line patterns that are malicious in BITS jobs may be benign in direct execution</span>
+        </div>
+      </div>
+      <div class="code-block mt-2" style="font-size:0.7rem"><span class="cmt">// Exhaustive mode config</span>
+<span class="str">"NID_ENABLE_HSTR_EXHAUSTIVE"</span>
+  @ <span class="num">0x10980A50</span>
+<span class="cmt">// All matches found, not just first</span>
+<span class="cmt">// Overlapping matches recorded</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: Per-Format Feature Extraction -->
+<div class="slide" data-slide="6">
+<div class="slide-inner center-col">
+  <h2 class="glow-green mb-1">Per-Format Feature Extraction</h2>
+  <p class="desc mb-2">BRUTE extracts format-specific features for ML classification and Lua analysis</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;border-top:3px solid var(--red);padding:20px;text-align:left">
+      <h3 style="color:var(--red);font-size:1rem;margin-bottom:8px">BRUTE:PDF:Feature:</h3>
+      <span class="label mono">@ 0x10A54CC8</span>
+      <div style="font-size:0.75rem;color:var(--fg2);margin-top:8px;line-height:1.8">
+        JavaScript presence/size<br>
+        Embedded file detection<br>
+        Suspicious action chains<br>
+        Unusual filter chains<br>
+        XFA form presence<br>
+        Object stream anomalies
+      </div>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;border-top:3px solid var(--purple);padding:20px;text-align:left">
+      <h3 style="color:var(--purple);font-size:1rem;margin-bottom:8px">BRUTE:VBS:Feature:</h3>
+      <span class="label mono">@ 0x10A54D08</span>
+      <div style="font-size:0.75rem;color:var(--fg2);margin-top:8px;line-height:1.8">
+        Shell execution patterns<br>
+        File system access (FSO)<br>
+        Network access (XMLHTTP)<br>
+        Registry operations<br>
+        Chr() density scoring<br>
+        Obfuscation indicators
+      </div>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-top:3px solid var(--green);padding:20px;text-align:left">
+      <h3 style="color:var(--green);font-size:1rem;margin-bottom:8px">BRUTE:JS:Feature:</h3>
+      <span class="label mono">@ 0x10A54D1C</span>
+      <div style="font-size:0.75rem;color:var(--fg2);margin-top:8px;line-height:1.8">
+        ActiveXObject patterns<br>
+        eval() usage frequency<br>
+        WScript.Shell calls<br>
+        DOM manipulation<br>
+        Base64 density<br>
+        Encoded content detection
+      </div>
+    </div>
+  </div>
+  <div class="stat-card mt-2" style="transition-delay:0.3s;border:2px solid rgba(255,215,64,0.4);max-width:700px">
+    <span class="num glow-yellow" style="font-size:1rem">Features feed into Lua scripts (Stage 10)</span>
+    <span class="label">Lua scripts combine BRUTE features with other attributes for complex detection logic</span>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: HSTR Family Tree -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">The HSTR Family Tree</h2>
+  <p class="desc mb-2">BRUTE is one of 10+ HSTR matching variants, each targeting different content types</p>
+  <div class="split">
+    <div class="code-block" style="font-size:0.72rem"><span class="fn">HSTR</span> (base matching engine)
+  |
+  +-- <span class="kw">BRUTE</span>             @ <span class="num">0x10986D8C</span>
+  |   <span class="cmt">Format-agnostic, raw bytes</span>
+  |
+  +-- <span class="kw">NSCRIPT_BRUTE</span>     @ <span class="num">0x10986AB0</span>
+  |   <span class="cmt">Deobfuscated script content</span>
+  |
+  +-- <span class="fn">PEHSTR</span>            @ <span class="num">0x109869C8</span>
+  |   +-- PEHSTR_EXT      @ <span class="num">0x10986618</span>
+  |   +-- PEHSTR_EXT2     @ <span class="num">0x109863EC</span>
+  |
+  +-- <span class="fn">MACHOHSTR_EXT</span>     @ <span class="num">0x109861D8</span>
+  +-- <span class="fn">DEXHSTR_EXT</span>       @ <span class="num">0x10986430</span>
+  +-- <span class="fn">SWFHSTR_EXT</span>       @ <span class="num">0x10986DF8</span>
+  +-- <span class="fn">MACROHSTR_EXT</span>     @ <span class="num">0x109870A0</span>
+  +-- <span class="fn">JAVAHSTR_EXT</span>      @ <span class="num">0x109870EC</span>
+  +-- <span class="fn">ARHSTR_POSIX_EXT</span>  @ <span class="num">0x10986F20</span>
+  +-- <span class="fn">ASCRIPTHSTR_EXT</span>   @ <span class="num">0x109864D4</span></div>
+    <div>
+      <h3 style="color:var(--cyan);margin-bottom:12px">162 Signature Types Total</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="stat-card" style="transition-delay:0.1s;padding:12px;text-align:left">
+          <span class="label" style="color:var(--yellow);font-weight:700;font-size:0.8rem">Hash-based</span>
+          <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:2px">KCRCE, LOCALHASH, BLOOM</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.12s;padding:12px;text-align:left">
+          <span class="label" style="color:var(--green);font-weight:700;font-size:0.8rem">Structure</span>
+          <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:2px">PESTATIC, PEBMPAT, IL_PATTERN</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.14s;padding:12px;text-align:left">
+          <span class="label" style="color:var(--purple);font-weight:700;font-size:0.8rem">Behavior</span>
+          <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:2px">FOP, THREAD_X86, TUNNEL_X86</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.16s;padding:12px;text-align:left">
+          <span class="label" style="color:var(--cyan);font-weight:700;font-size:0.8rem">Script</span>
+          <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:2px">NSCRIPT_SP, NSCRIPT_BRUTE</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.18s;padding:12px;text-align:left">
+          <span class="label" style="color:var(--orange);font-weight:700;font-size:0.8rem">Cloud</span>
+          <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:2px">FASTPATH_SDN, FASTPATH_TDN</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.2s;padding:12px;text-align:left">
+          <span class="label" style="color:var(--red);font-weight:700;font-size:0.8rem">Universal</span>
+          <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:2px">BRUTE -- the format-agnostic catch-all</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: Integration with Lua -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">BRUTE + Lua Integration</h2>
+  <p class="desc mb-2">BRUTE match results are the primary data source for Lua-based complex detection</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange);margin-bottom:10px">Data Flow</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="flow-node" style="background:rgba(255,215,64,0.15);border:1px solid rgba(255,215,64,0.4);padding:12px;transition-delay:0.1s;text-align:left">
+          <strong style="color:var(--yellow)">Stage 9: BRUTE</strong><br>
+          <span style="font-size:0.75rem;color:var(--fg2)">Match patterns A, C, F against raw data</span>
+        </div>
+        <div style="text-align:center;color:var(--fg3);font-size:1em">&darr; match results &darr;</div>
+        <div class="flow-node" style="background:rgba(0,229,255,0.15);border:1px solid rgba(0,229,255,0.4);padding:12px;transition-delay:0.2s;text-align:left">
+          <strong style="color:var(--cyan)">Stage 10: Lua</strong><br>
+          <span style="font-size:0.75rem;color:var(--fg2)">if match("A") and match("C") and not match("D") then DETECT</span>
+        </div>
+        <div style="text-align:center;color:var(--fg3);font-size:1em">&darr; detection &darr;</div>
+        <div class="flow-node" style="background:rgba(255,82,82,0.15);border:2px solid rgba(255,82,82,0.4);padding:12px;transition-delay:0.3s;font-weight:700;color:var(--red)">
+          THREAT: Complex multi-condition detection
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange);margin-bottom:10px">What Lua Can Do With BRUTE Results</h3>
+      <div style="display:grid;grid-template-columns:1fr;gap:8px">
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.1s">
+          <span class="detail">Check if specific BRUTE patterns matched</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.15s">
+          <span class="detail">Get match counts for frequency analysis</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.2s">
+          <span class="detail">Get match offsets for positional analysis</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s">
+          <span class="detail">Combine BRUTE + attributes from other stages</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.3s">
+          <span class="detail">Complex boolean logic beyond AAGG expressions</span>
+        </div>
+      </div>
+      <div class="code-block mt-2" style="font-size:0.7rem"><span class="cmt">-- Lua script example</span>
+<span class="kw">if</span> <span class="fn">mp.bcrp_match</span>(<span class="str">"WScript.Shell"</span>)
+   <span class="kw">and</span> <span class="fn">mp.bcrp_match</span>(<span class="str">"eval("</span>)
+   <span class="kw">and</span> <span class="fn">mp.getattribute</span>(
+     <span class="str">"Nscript:js_hasBigString"</span>)
+<span class="kw">then</span>
+   <span class="fn">mp.set_detection</span>(
+     <span class="str">"TrojanDropper:JS/Obfuse"</span>)
+<span class="kw">end</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: NSCRIPT_BRUTE -->
+<div class="slide" data-slide="9">
+<div class="slide-inner center-col">
+  <h2 class="glow-green mb-1">NSCRIPT_BRUTE: Script Variant</h2>
+  <p class="desc mb-2">Specialized BRUTE matching for deobfuscated script content</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:20px;border-left:3px solid var(--yellow)">
+      <h3 style="color:var(--yellow);font-size:1rem;margin-bottom:8px">SIGNATURE_TYPE_BRUTE</h3>
+      <span class="label mono" style="display:block;margin-bottom:8px">@ 0x10986D8C</span>
+      <div style="font-size:0.8rem;color:var(--fg2);line-height:1.8">
+        <div><strong>Input:</strong> Raw file bytes</div>
+        <div><strong>Timing:</strong> After all transforms</div>
+        <div><strong>Target:</strong> Any file format</div>
+        <div><strong>Patterns:</strong> Binary patterns</div>
+        <div><strong>Use:</strong> Polymorphic malware</div>
+      </div>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:20px;border-left:3px solid var(--green)">
+      <h3 style="color:var(--green);font-size:1rem;margin-bottom:8px">SIGNATURE_TYPE_NSCRIPT_BRUTE</h3>
+      <span class="label mono" style="display:block;margin-bottom:8px">@ 0x10986AB0</span>
+      <div style="font-size:0.8rem;color:var(--fg2);line-height:1.8">
+        <div><strong>Input:</strong> Deobfuscated script text</div>
+        <div><strong>Timing:</strong> After NScript Stage 8</div>
+        <div><strong>Target:</strong> Script content only</div>
+        <div><strong>Patterns:</strong> Text/string patterns</div>
+        <div><strong>Use:</strong> Obfuscated script malware</div>
+      </div>
+    </div>
+  </div>
+  <div class="stat-card mt-2" style="transition-delay:0.25s;border:2px solid rgba(57,255,20,0.4);max-width:800px">
+    <span class="num glow-green" style="font-size:1rem">Obfuscated scripts have no stable byte patterns</span>
+    <span class="label">After NScript normalization, the underlying API calls and strings are exposed -- NSCRIPT_BRUTE matches against this stable, deobfuscated form</span>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 10: Summary -->
+<div class="slide" data-slide="10">
+<div class="slide-inner center-col" style="justify-content:center">
+  <h2 class="glow-yellow mb-2">BRUTE Matching: Summary</h2>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.05s"><span class="num glow-yellow" data-count="162">0</span><span class="label">Total SIGNATURE_TYPE Entries</span></div>
+    <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-cyan">8</span><span class="label">HSTR Caller Contexts</span></div>
+    <div class="stat-card" style="transition-delay:0.15s"><span class="num glow-green">10+</span><span class="label">Format-Specific HSTR Variants</span></div>
+    <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-orange">3</span><span class="label">Feature Extraction Prefixes</span></div>
+    <div class="stat-card" style="transition-delay:0.25s"><span class="num glow-yellow">O(n)</span><span class="label">Amortized Complexity</span></div>
+    <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-cyan">2</span><span class="label">BRUTE + NSCRIPT_BRUTE</span></div>
+    <div class="stat-card" style="transition-delay:0.35s"><span class="num glow-green">Weighted</span><span class="label">Multi-Pattern Scoring</span></div>
+    <div class="stat-card" style="transition-delay:0.4s"><span class="num glow-orange">Lua</span><span class="label">Primary Data for Stage 10</span></div>
+  </div>
+  <p class="mt-3 desc" style="max-width:800px">BRUTE matching is the format-agnostic safety net in the Defender pipeline. While format-specific engines provide fast targeted matching, BRUTE ensures that <strong>no content passes through without thorough raw-byte pattern analysis</strong>. Its weighted scoring and Lua integration enable detection of sophisticated polymorphic threats.</p>
+  <p class="mono mt-2" style="font-size:0.75rem;color:var(--fg3)">SIGNATURE_TYPE_BRUTE @ 0x10986D8C &bull; HSTR_WEIGHT @ 0x1097C6D0 &bull; 162 sig types &bull; mpengine.dll</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

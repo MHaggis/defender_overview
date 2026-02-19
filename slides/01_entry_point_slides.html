@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 01 — Entry Point & Command Dispatch</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--purple));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Stage 01 &mdash; Reverse Engineering Deep Dive</p>
+  <h1 class="glow-cyan">Entry Point &amp; Command Dispatch</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">How scan requests enter mpengine.dll</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan" data-count="90">0</span><span class="label">DLL Exports</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">2</span><span class="label">Dispatchers</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple" data-count="13">0</span><span class="label">Command Codes</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">5</span><span class="label">Global State Vars</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">From RE of mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+<!-- SLIDE 2: Purpose -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-2">What This Stage Does</h2>
+  <div class="split">
+    <div>
+      <p class="desc">Every scan request &mdash; real-time protection, scheduled scan, AMSI, or command-line &mdash; enters through one of <strong>two dispatcher exports</strong>.</p>
+      <p class="desc mt-2">The dispatcher validates engine state, selects a handler based on a <strong>command code</strong> integer, and routes to the appropriate scan pipeline entry.</p>
+      <p class="desc mt-2">Three commands get <strong>fast-path</strong> treatment in __rsignal: BOOT (0x4003), SCAN (0x400B), and AMSI (0x4019). All others go through a secondary switch table.</p>
+      <p class="desc mt-2" style="color:var(--fg3)">A distinctive <strong>self-pointer sentinel</strong> pattern guards against use-before-init: the global context pointer initially points to its own address.</p>
+    </div>
+    <div>
+      <div class="stat-grid stat-grid-2x3" style="grid-template-columns:1fr 1fr">
+        <div class="stat-card" style="transition-delay:0.1s"><span class="num" style="font-size:1rem;color:var(--cyan)">rsignal</span><span class="label">Outer dispatcher</span></div>
+        <div class="stat-card" style="transition-delay:0.2s"><span class="num" style="font-size:1rem;color:var(--green)">__rsignal</span><span class="label">Inner dispatcher</span></div>
+        <div class="stat-card" style="transition-delay:0.3s"><span class="num" style="font-size:1rem;color:var(--purple)">MpBootStrap</span><span class="label">Engine init</span></div>
+        <div class="stat-card" style="transition-delay:0.4s"><span class="num" style="font-size:1rem;color:var(--orange)">GetSigFiles</span><span class="label">VDM enumeration</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Key Exports -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Export Table &mdash; Key Entries</h2>
+  <p class="desc mb-2">90 total exports. These are the ones relevant to scan pipeline entry.</p>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.05s">
+      <span class="idx">83</span>
+      <span class="name" style="color:var(--cyan)">__rsignal</span>
+      <span class="detail"><code>0x10133CD0</code> &mdash; Inner command router, fast-path for BOOT/SCAN/AMSI</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+      <span class="idx">88</span>
+      <span class="name" style="color:var(--cyan)">rsignal</span>
+      <span class="detail"><code>0x102BF000</code> &mdash; Outer dispatcher, handles init check + delegates to __rsignal</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s">
+      <span class="idx">69</span>
+      <span class="name" style="color:var(--green)">MpBootStrap</span>
+      <span class="detail"><code>0x102BD660</code> &mdash; Engine init: load VDM signatures, allocate context</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.2s">
+      <span class="idx">68</span>
+      <span class="name" style="color:var(--green)">GetSigFiles</span>
+      <span class="detail"><code>0x102BEE10</code> &mdash; Enumerate VDM signature database files</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.25s">
+      <span class="idx">77</span>
+      <span class="name" style="color:var(--purple)">MpContainerOpen</span>
+      <span class="detail"><code>0x102BCF00</code> &mdash; Open archive/container for child extraction</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.3s">
+      <span class="idx">70</span>
+      <span class="name" style="color:var(--purple)">MpContainerAnalyze</span>
+      <span class="detail"><code>0x102BCB80</code> &mdash; Scan container contents recursively</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: Command Codes -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Command Code Table</h2>
+  <p class="desc mb-2">Extracted from the comparison chains in __rsignal and rsignal disassembly</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">Fast-Path Commands (__rsignal)</h3>
+      <div class="code-block"><span class="num">0x4003</span>  BOOT_ENGINE      <span class="cmt">// Init + load sigs</span>
+<span class="num">0x400B</span>  SCAN_BUFFER      <span class="cmt">// Primary scan</span>
+<span class="num">0x4019</span>  SCAN_AMSI        <span class="cmt">// Script content</span></div>
+      <h3 class="mt-2" style="color:var(--orange)">Extended Commands (rsignal)</h3>
+      <div class="code-block"><span class="num">0x4004</span>  UNLOAD_ENGINE    <span class="cmt">// Teardown</span>
+<span class="num">0x400A</span>  SHUTDOWN         <span class="cmt">// Full shutdown</span>
+<span class="num">0x4036</span>  SCAN_FILE        <span class="cmt">// File scan (new)</span>
+<span class="num">0x4052</span>  SCAN_DISPATCH    <span class="cmt">// Direct dispatch</span>
+<span class="num">0x4059</span>  SCAN_EXTENDED    <span class="cmt">// Extra params</span>
+<span class="num">0x4069</span>  SCAN_ASYNC       <span class="cmt">// Async submit</span>
+<span class="num">0x4074</span>  SCAN_NETWORK     <span class="cmt">// Network scan</span>
+<span class="num">0x4075</span>  SCAN_NOTIFY      <span class="cmt">// Notification</span>
+<span class="num">0x4090</span>  SCAN_RUNTIME     <span class="cmt">// BM runtime</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">Dispatch Logic</h3>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">; rsignal comparison chain</span>
+<span class="cmt">; @ 0x102BF05A</span>
+<span class="kw">mov</span>  eax, <span class="num">0x4059</span>
+<span class="kw">cmp</span>  esi, eax
+<span class="kw">jg</span>   check_higher
+<span class="kw">je</span>   dispatch_common
+<span class="kw">mov</span>  eax, esi
+<span class="kw">sub</span>  eax, <span class="num">0x4004</span>  <span class="cmt">; UNLOAD?</span>
+<span class="kw">je</span>   dispatch_common
+<span class="kw">sub</span>  eax, <span class="num">0x32</span>    <span class="cmt">; +0x32=SCAN_FILE</span>
+<span class="kw">je</span>   dispatch_common
+<span class="kw">sub</span>  eax, <span class="num">0x1C</span>    <span class="cmt">; +0x1C=SCAN_DISPATCH</span>
+<span class="kw">je</span>   boot_first</div>
+      <div class="stat-card mt-2" style="opacity:1;transform:none">
+        <span class="num" style="font-size:0.9rem;color:var(--orange)">Subtraction Chain</span>
+        <span class="label">Each sub tests a new command code without resetting eax</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: __rsignal Disassembly -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">__rsignal Disassembly</h2>
+  <p class="desc mb-2">The inner dispatcher at <code class="mono">0x10133CD0</code></p>
+  <div class="split-60-40">
+    <div class="code-block" style="font-size:0.75rem"><span class="cmt">; __rsignal @ 0x10133CD0</span>
+<span class="kw">push</span>  ebp
+<span class="kw">mov</span>   ebp, esp
+<span class="kw">and</span>   esp, <span class="num">0xFFFFFFF8</span>       <span class="cmt">; 8-byte align</span>
+<span class="kw">mov</span>   eax, [ebp+<span class="num">0xC</span>]       <span class="cmt">; eax = cmd code</span>
+<span class="kw">cmp</span>   eax, <span class="num">0x4003</span>          <span class="cmt">; BOOT_ENGINE?</span>
+<span class="kw">je</span>    <span class="fn">handler_common</span>
+<span class="kw">cmp</span>   eax, <span class="num">0x400B</span>          <span class="cmt">; SCAN_BUFFER?</span>
+<span class="kw">je</span>    <span class="fn">handler_common</span>
+<span class="kw">cmp</span>   eax, <span class="num">0x4019</span>          <span class="cmt">; SCAN_AMSI?</span>
+<span class="kw">je</span>    <span class="fn">handler_common</span>
+
+<span class="cmt">; non-fast-path: delegate</span>
+<span class="kw">push</span>  [ebp+<span class="num">0x14</span>]
+<span class="kw">call</span>  <span class="fn">0x10133D35</span>          <span class="cmt">; sub_dispatch</span>
+<span class="kw">jmp</span>   <span class="fn">epilogue</span>
+
+<span class="fn">handler_common:</span>
+<span class="kw">mov</span>   ecx, [<span class="num">0x10C707B0</span>]   <span class="cmt">; g_engine_ctx</span>
+<span class="kw">cmp</span>   ecx, <span class="num">0x10C707B0</span>     <span class="cmt">; sentinel?</span>
+<span class="kw">je</span>    <span class="fn">return_error</span>
+<span class="kw">test</span>  byte [ecx+<span class="num">0x1C</span>], <span class="num">1</span>  <span class="cmt">; ENGINE_READY?</span>
+<span class="kw">je</span>    <span class="fn">return_error</span>
+<span class="cmt">; ... dispatch to handler ...</span>
+
+<span class="fn">return_error:</span>
+<span class="kw">mov</span>   eax, <span class="num">0x800E</span>         <span class="cmt">; INVALID_STATE</span>
+<span class="kw">ret</span></div>
+    <div>
+      <h3 style="color:var(--cyan)">Key Observations</h3>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);transition-delay:0.1s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--cyan)">Stack Alignment</strong><br>8-byte align for SSE in scan routines</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);transition-delay:0.2s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--green)">Sentinel Pattern</strong><br>Self-pointer at 0x10C707B0 means "not init"</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);transition-delay:0.3s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--purple)">Fast-Path</strong><br>3 commands skip the full switch table</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(255,145,0,0.3);transition-delay:0.4s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--orange)">Error Code</strong><br>0x800E = engine not ready</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: Global State -->
+<div class="slide" data-slide="6">
+<div class="slide-inner center-col">
+  <h2 class="glow-purple mb-2">Global State Variables</h2>
+  <div class="stat-grid stat-grid-3" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;border-left:3px solid var(--cyan);text-align:left;padding:16px">
+      <span class="num" style="font-size:1rem;color:var(--cyan)">0x10C707B0</span>
+      <span class="label">g_engine_context</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:8px">Pointer to ENGINE_CONTEXT. Self-pointer when uninitialized (sentinel pattern).</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-left:3px solid var(--green);text-align:left;padding:16px">
+      <span class="num" style="font-size:1rem;color:var(--green)">0x10CA5654</span>
+      <span class="label">g_engine_initialized</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:8px">Byte flag. Set to 1 after BOOT_ENGINE completes successfully.</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;border-left:3px solid var(--purple);text-align:left;padding:16px">
+      <span class="num" style="font-size:1rem;color:var(--purple)">0x10CA564C</span>
+      <span class="label">g_boot_attempted</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:8px">Byte flag. Set to 1 on first boot attempt. Prevents double-init.</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.4s;border-left:3px solid var(--orange);text-align:left;padding:16px">
+      <span class="num" style="font-size:1rem;color:var(--orange)">0x10CA5650</span>
+      <span class="label">g_engine_handle</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:8px">Opaque engine handle. Cleared to 0 on SHUTDOWN (cmd 0x400A).</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.5s;border-left:3px solid var(--yellow);text-align:left;padding:16px">
+      <span class="num" style="font-size:1rem;color:var(--yellow)">0x10C6F880</span>
+      <span class="label">g_stack_cookie</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:8px">Stack canary value (observed: 0xBB40E64E). Protects sub_dispatch frame.</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.6s;border-left:3px solid var(--red);text-align:left;padding:16px">
+      <span class="num" style="font-size:1rem;color:var(--red)">+0x1C</span>
+      <span class="label">engine-&gt;flags</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:8px">Bit 0 = ENGINE_READY, Bit 3 = LOGGING_ENABLED. Checked at every dispatch.</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: Sentinel Pattern -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Self-Pointer Sentinel Pattern</h2>
+  <p class="desc mb-2">A distinctive initialization guard found throughout the engine</p>
+  <div class="split">
+    <div>
+      <div class="code-block"><span class="cmt">// Before MpBootStrap:</span>
+<span class="cmt">//   [0x10C707B0] == 0x10C707B0  (points to self)</span>
+<span class="cmt">//   This means: "not initialized"</span>
+
+<span class="kw">mov</span>   ecx, [<span class="num">0x10C707B0</span>]    <span class="cmt">; load ptr</span>
+<span class="kw">cmp</span>   ecx, <span class="num">0x10C707B0</span>      <span class="cmt">; self?</span>
+<span class="kw">je</span>    <span class="fn">not_initialized</span>
+
+<span class="cmt">// After MpBootStrap succeeds:</span>
+<span class="cmt">//   [0x10C707B0] == 0x0B1234A0  (heap alloc)</span>
+<span class="cmt">//   Now the sentinel check passes</span>
+
+<span class="kw">test</span>  byte [ecx+<span class="num">0x1C</span>], <span class="num">1</span>   <span class="cmt">; flags check</span>
+<span class="kw">je</span>    <span class="fn">not_ready</span></div>
+    </div>
+    <div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:16px">
+        <div class="flow-node" style="background:rgba(255,82,82,0.15);border:2px solid rgba(255,82,82,0.4);transition-delay:0.1s;padding:14px 24px;color:var(--red);font-size:0.85rem">
+          <strong>Before Boot</strong><br>
+          <code style="font-size:0.75rem">[0x10C707B0] &rarr; 0x10C707B0</code><br>
+          <span style="font-size:0.7rem;color:var(--fg3)">Self-pointer = uninitialized</span>
+        </div>
+        <span class="flow-arrow" style="font-size:2em;transition-delay:0.15s">&darr;</span>
+        <div class="flow-node" style="background:rgba(255,145,0,0.15);border:2px solid rgba(255,145,0,0.4);transition-delay:0.2s;padding:14px 24px;color:var(--orange);font-size:0.85rem">
+          <strong>MpBootStrap @ 0x102BD660</strong><br>
+          <span style="font-size:0.7rem;color:var(--fg3)">Load VDM, alloc context, set flags</span>
+        </div>
+        <span class="flow-arrow" style="font-size:2em;transition-delay:0.25s">&darr;</span>
+        <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.4);transition-delay:0.3s;padding:14px 24px;color:var(--green);font-size:0.85rem">
+          <strong>After Boot</strong><br>
+          <code style="font-size:0.75rem">[0x10C707B0] &rarr; heap_alloc</code><br>
+          <span style="font-size:0.7rem;color:var(--fg3)">Real context = operational</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: rsignal Dispatch Flow -->
+<div class="slide" data-slide="8">
+<div class="slide-inner center-col">
+  <h2 class="glow-orange mb-1">rsignal Dispatch Flow</h2>
+  <p class="desc mb-2">Full path from caller to pipeline entry</p>
+  <div class="pipeline-track" style="max-width:1200px">
+    <div class="pipeline-dot"></div>
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+      <div class="flow-node" style="background:var(--bg4);border:1px solid rgba(255,255,255,0.1);font-size:0.7rem;padding:6px 10px;transition-delay:0.05s;margin:3px">Caller</div>
+      <span class="flow-arrow" style="transition-delay:0.05s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.1s;margin:3px;color:var(--cyan)">rsignal<br><span style="font-size:0.6rem">0x102BF000</span></div>
+      <span class="flow-arrow" style="transition-delay:0.1s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.15s;margin:3px;color:var(--green)">Init Check<br><span style="font-size:0.6rem">0x10CA5654</span></div>
+      <span class="flow-arrow" style="transition-delay:0.15s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.2s;margin:3px;color:var(--purple)">__rsignal<br><span style="font-size:0.6rem">0x10133CD0</span></div>
+      <span class="flow-arrow" style="transition-delay:0.2s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.25s;margin:3px;color:var(--orange)">Cmd Check<br><span style="font-size:0.6rem">cmp eax, 0x40xx</span></div>
+      <span class="flow-arrow" style="transition-delay:0.25s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.3s;margin:3px;color:var(--cyan)">Context Valid?<br><span style="font-size:0.6rem">0x10C707B0</span></div>
+      <span class="flow-arrow" style="transition-delay:0.3s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.35s;margin:3px;color:var(--green)">Flags OK?<br><span style="font-size:0.6rem">[ecx+0x1C] &amp; 1</span></div>
+      <span class="flow-arrow" style="transition-delay:0.35s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.5);font-size:0.7rem;padding:6px 14px;transition-delay:0.4s;margin:3px;color:var(--green);font-weight:700">Handler</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px;width:100%;max-width:900px">
+    <div class="stat-card" style="transition-delay:0.5s"><span class="num" style="font-size:0.85rem;color:var(--red)">0x800E</span><span class="label">Returned if context invalid</span></div>
+    <div class="stat-card" style="transition-delay:0.55s"><span class="num" style="font-size:0.85rem;color:var(--red)">0x8001</span><span class="label">Returned for SCAN_DISPATCH fail</span></div>
+    <div class="stat-card" style="transition-delay:0.6s"><span class="num" style="font-size:0.85rem;color:var(--green)">0x0000</span><span class="label">Success / scan initiated</span></div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: MpBootStrap -->
+<div class="slide" data-slide="9">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">MpBootStrap &mdash; Engine Initialization</h2>
+  <p class="desc mb-2">Called once at service startup to load VDM signatures and allocate the engine context</p>
+  <div class="split">
+    <div class="code-block" style="font-size:0.75rem"><span class="cmt">; MpBootStrap @ 0x102BD660</span>
+<span class="kw">push</span>  <span class="num">0x0C</span>               <span class="cmt">; SEH frame</span>
+<span class="kw">mov</span>   eax, <span class="num">0x108D60DF</span>    <span class="cmt">; SEH handler</span>
+<span class="kw">call</span>  <span class="fn">0x10268FD1</span>        <span class="cmt">; __SEH_prolog</span>
+<span class="kw">mov</span>   edx, [ebp+<span class="num">0xC</span>]    <span class="cmt">; output ptr</span>
+<span class="kw">mov</span>   ecx, [ebp+<span class="num">0x8</span>]    <span class="cmt">; config ptr</span>
+<span class="kw">call</span>  <span class="fn">0x10322CAA</span>        <span class="cmt">; inner_bootstrap</span>
+<span class="kw">mov</span>   esi, eax          <span class="cmt">; HRESULT</span>
+<span class="kw">test</span>  esi, esi
+<span class="kw">jns</span>   <span class="fn">success</span>
+
+<span class="cmt">; Failure: log via engine context</span>
+<span class="kw">mov</span>   eax, [<span class="num">0x10C707B0</span>] <span class="cmt">; g_engine_ctx</span>
+<span class="kw">cmp</span>   eax, <span class="num">0x10C707B0</span>   <span class="cmt">; sentinel?</span>
+<span class="kw">je</span>    <span class="fn">skip_log</span>
+<span class="kw">test</span>  byte [eax+<span class="num">0x1C</span>], <span class="num">1</span>
+<span class="kw">je</span>    <span class="fn">skip_log</span>
+<span class="kw">push</span>  esi              <span class="cmt">; error code</span>
+<span class="kw">mov</span>   edx, <span class="num">0x109C35F8</span>  <span class="cmt">; format str</span></div>
+    <div>
+      <h3 style="color:var(--purple)">Boot Sequence</h3>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);transition-delay:0.1s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--purple)">1.</strong> Set up SEH frame (handler @ 0x108D60DF)</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);transition-delay:0.15s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--purple)">2.</strong> Call inner_bootstrap @ 0x10322CAA</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);transition-delay:0.2s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--purple)">3.</strong> Load VDM files, parse TLV records</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);transition-delay:0.25s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--purple)">4.</strong> Compile sig database into lookup structures</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);transition-delay:0.3s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--purple)">5.</strong> Allocate ENGINE_CONTEXT, write to 0x10C707B0</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);transition-delay:0.35s;padding:10px 14px;text-align:left;font-size:0.8rem"><strong style="color:var(--green)">6.</strong> Set g_initialized = 1 (@ 0x10CA5654)</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 10: ETW Trace Strings -->
+<div class="slide" data-slide="10">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">ETW Trace Events</h2>
+  <p class="desc mb-2">Strings embedded in the binary for event tracing</p>
+  <div style="display:flex;flex-direction:column;gap:7px">
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.05s">
+      <span class="idx" style="color:var(--green)">5710</span>
+      <span class="name">Engine.Scan.AsyncStats</span>
+      <span class="detail"><code>0x109C3D94</code></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.1s">
+      <span class="idx" style="color:var(--green)">5909</span>
+      <span class="name">Engine.Scan.Unpacker</span>
+      <span class="detail"><code>0x109C6068</code></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.15s">
+      <span class="idx" style="color:var(--cyan)">7465</span>
+      <span class="name">Engine.Scan.QuickScanStarted</span>
+      <span class="detail"><code>0x109D4BE0</code></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.2s">
+      <span class="idx" style="color:var(--cyan)">7468</span>
+      <span class="name">Engine.Scan.QuickScanEnded</span>
+      <span class="detail"><code>0x109D4C14</code></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.25s">
+      <span class="idx" style="color:var(--purple)">7470</span>
+      <span class="name">Engine.Scan.FullScanStarted</span>
+      <span class="detail"><code>0x109D4C38</code></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.3s">
+      <span class="idx" style="color:var(--orange)">7480</span>
+      <span class="name">Engine.Scan.ScanAborted</span>
+      <span class="detail"><code>0x109D4CF4</code></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.35s">
+      <span class="idx" style="color:var(--yellow)">14678</span>
+      <span class="name">Engine.Scan.FileScan</span>
+      <span class="detail"><code>0x10A33C0C</code></span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 11: Summary -->
+<div class="slide" data-slide="11">
+<div class="slide-inner center-col" style="justify-content:center;gap:20px">
+  <h2 class="glow-cyan mb-1">Stage 01 Summary</h2>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;width:100%;max-width:1000px">
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:16px">
+      <h3 style="color:var(--cyan);font-size:0.95rem">Two-Layer Dispatch</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">rsignal (outer) validates init state and delegates to __rsignal (inner) which routes by command code.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:16px">
+      <h3 style="color:var(--green);font-size:0.95rem">Sentinel Guard</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">Global context at 0x10C707B0 uses self-pointer as uninitialized sentinel. Checked on every dispatch.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:16px">
+      <h3 style="color:var(--purple);font-size:0.95rem">Auto-Boot Path</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">Certain commands (SCAN_FILE, SCAN_DISPATCH) trigger automatic boot if not yet initialized.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:16px">
+      <h3 style="color:var(--orange);font-size:0.95rem">Next: FRIENDLY_FILE</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">After dispatch selects a scan handler, the first pipeline check is the SHA-256 whitelist (Stage 02).</p>
+    </div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">All addresses from RE of mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Defender Scan Pipeline — Master Overview</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--purple));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Reverse Engineering Deep Dive</p>
+  <h1 class="glow-cyan">The 13-Stage Scan Pipeline</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">Inside Windows Defender's mpengine.dll</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan">13</span><span class="label">Pipeline Stages</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">14.3 MB</span><span class="label">Binary Size</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple" data-count="90">0</span><span class="label">Exports</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange" data-count="358756">0</span><span class="label">Threats</span></div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 2: What Happens When You Scan -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-2">What Happens When You Scan a File?</h2>
+  <div class="split">
+    <div>
+      <p class="desc">When Windows Defender scans a file, it passes through <strong>13 distinct stages</strong> inside a single monolithic DLL. Each stage can detect threats, collect attributes, or recursively invoke the entire pipeline on extracted content.</p>
+      <p class="desc mt-2">The pipeline is sequential but has three recursive feedback loops: PE emulation unpacking, container extraction, and script deobfuscation. A single ZIP containing a macro-enabled Word doc could trigger hundreds of recursive scans.</p>
+      <p class="desc mt-2" style="color:var(--fg3)">Every address and string cited comes from reverse engineering the actual mpengine.dll binary.</p>
+    </div>
+    <div class="stat-grid stat-grid-2x3">
+      <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-cyan">16</span><span class="label">Sig Engines</span></div>
+      <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-green">25+</span><span class="label">Container Formats</span></div>
+      <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-purple">4</span><span class="label">Script Languages</span></div>
+      <div class="stat-card" style="transition-delay:0.4s"><span class="num glow-orange" data-count="198">0</span><span class="label">WinAPI Handlers</span></div>
+      <div class="stat-card" style="transition-delay:0.5s"><span class="num glow-cyan" data-count="59415">0</span><span class="label">Lua Scripts</span></div>
+      <div class="stat-card" style="transition-delay:0.6s"><span class="num glow-green" data-count="9300000">0</span><span class="label">TLV Entries</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Entry Points -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Entry Points</h2>
+  <p class="desc mb-2">How scan requests enter mpengine.dll &mdash; 90 exports, 2 primary dispatchers</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--green)">Export Table</h3>
+      <div class="code-block"><span class="cmt">// Primary exports</span>
+<span class="fn">__rsignal</span>          @ <span class="num">0x10133CD0</span>  <span class="cmt">// Command router</span>
+<span class="fn">rsignal</span>             @ <span class="num">0x102BF000</span>  <span class="cmt">// Newer dispatch</span>
+<span class="fn">MpBootStrap</span>         @ <span class="num">0x102BD660</span>  <span class="cmt">// Init engine</span>
+<span class="fn">MpContainerOpen</span>     @ <span class="num">0x102BCF00</span>  <span class="cmt">// Container API</span>
+<span class="fn">MpContainerAnalyze</span>  @ <span class="num">0x102BCB80</span>  <span class="cmt">// Container scan</span>
+<span class="fn">GetSigFiles</span>         @ <span class="num">0x102BEE10</span>  <span class="cmt">// VDM enumeration</span></div>
+      <h3 class="mt-2" style="color:var(--green)">Command Codes</h3>
+      <div class="code-block" style="font-size:0.78rem"><span class="num">0x4003</span>  BOOT_ENGINE    <span class="cmt">// Load signatures</span>
+<span class="num">0x400B</span>  SCAN_BUFFER    <span class="cmt">// Primary scan</span>
+<span class="num">0x4019</span>  SCAN_AMSI      <span class="cmt">// Script content</span>
+<span class="num">0x4036</span>  SCAN_FILE      <span class="cmt">// File scan (new)</span>
+<span class="num">0x4052</span>  SCAN_DISPATCH  <span class="cmt">// Direct dispatch</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">__rsignal Dispatch</h3>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">; @ 0x10133CD0</span>
+<span class="kw">push</span>  ebp
+<span class="kw">mov</span>   ebp, esp
+<span class="kw">and</span>   esp, <span class="num">0xFFFFFFF8</span>
+<span class="kw">mov</span>   eax, [ebp+<span class="num">0xc</span>]  <span class="cmt">; cmd code</span>
+<span class="kw">cmp</span>   eax, <span class="num">0x4003</span>     <span class="cmt">; BOOT</span>
+<span class="kw">je</span>    handler
+<span class="kw">cmp</span>   eax, <span class="num">0x400B</span>     <span class="cmt">; SCAN</span>
+<span class="kw">je</span>    handler
+<span class="kw">cmp</span>   eax, <span class="num">0x4019</span>     <span class="cmt">; AMSI</span>
+<span class="kw">je</span>    handler
+<span class="cmt">; sub-dispatch @ 0x10133D35</span></div>
+      <div class="stat-card mt-2" style="opacity:1;transform:none">
+        <span class="num" style="font-size:1rem;color:var(--green)">0x10C707B0</span>
+        <span class="label">Global engine context pointer</span>
+      </div>
+      <div class="stat-card mt-1" style="opacity:1;transform:none">
+        <span class="num" style="font-size:1rem;color:var(--green)">0x10CA5654</span>
+        <span class="label">Engine initialized flag byte</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: The Complete Pipeline -->
+<div class="slide" data-slide="4">
+<div class="slide-inner center-col">
+  <h2 class="glow-cyan mb-1">The Complete Pipeline</h2>
+  <p class="desc mb-2">Every stage a file passes through, from entry to verdict</p>
+  <div class="pipeline-track">
+    <div class="pipeline-dot"></div>
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+      <div class="flow-node" style="background:var(--bg4);border:1px solid rgba(255,255,255,0.1);font-size:0.7rem;padding:6px 10px;transition-delay:0.05s;margin:3px">Entry</div>
+      <span class="flow-arrow" style="transition-delay:0.05s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.1s;margin:3px;color:var(--cyan)">FRIENDLY</div>
+      <span class="flow-arrow" style="transition-delay:0.1s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.15s;margin:3px;color:var(--green)">Static x9</div>
+      <span class="flow-arrow" style="transition-delay:0.15s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.2s;margin:3px;color:var(--orange)">Attr Collect</div>
+      <span class="flow-arrow" style="transition-delay:0.2s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.25s;margin:3px;color:var(--purple)">PE Emulation</div>
+      <span class="flow-arrow" style="transition-delay:0.25s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.3s;margin:3px;color:var(--green)">Unpack</div>
+      <span class="flow-arrow" style="transition-delay:0.3s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.35s;margin:3px;color:var(--cyan)">Containers</div>
+      <span class="flow-arrow" style="transition-delay:0.35s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.4s;margin:3px;color:var(--orange)">Script Deob</div>
+      <span class="flow-arrow" style="transition-delay:0.4s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.45s;margin:3px;color:var(--yellow)">BRUTE</div>
+      <span class="flow-arrow" style="transition-delay:0.45s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.5s;margin:3px;color:var(--cyan)">Lua</div>
+      <span class="flow-arrow" style="transition-delay:0.5s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.55s;margin:3px;color:var(--purple)">AAGG Eval</div>
+      <span class="flow-arrow" style="transition-delay:0.55s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.6s;margin:3px;color:var(--cyan)">MAPS</div>
+      <span class="flow-arrow" style="transition-delay:0.6s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.5);font-size:0.7rem;padding:6px 14px;transition-delay:0.65s;margin:3px;color:var(--green);font-weight:700">Verdict</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:24px;width:100%;max-width:1000px">
+    <div style="text-align:center"><div style="font-size:0.7rem;color:var(--fg3);margin-bottom:4px">Stage 2</div><div class="mono" style="font-size:0.8rem;color:var(--cyan)">SHA-256 whitelist</div></div>
+    <div style="text-align:center"><div style="font-size:0.7rem;color:var(--fg3);margin-bottom:4px">Stages 3-4</div><div class="mono" style="font-size:0.8rem;color:var(--green)">9 engines + attrs</div></div>
+    <div style="text-align:center"><div style="font-size:0.7rem;color:var(--fg3);margin-bottom:4px">Stages 5-8</div><div class="mono" style="font-size:0.8rem;color:var(--purple)">Emu + Unpack + Deob</div></div>
+    <div style="text-align:center"><div style="font-size:0.7rem;color:var(--fg3);margin-bottom:4px">Stages 9-13</div><div class="mono" style="font-size:0.8rem;color:var(--orange)">BRUTE + Lua + Cloud</div></div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: Recursive Feedback Loops -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">Recursive Feedback Loops</h2>
+  <p class="desc mb-2">Three stages can trigger re-scanning through the entire pipeline</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+    <div style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--purple);margin-bottom:8px">PE Unpacking</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.6">After emulation, modified PE sections and VFS-dropped files are fed back through the full pipeline.</p>
+      <div class="mono mt-2" style="font-size:0.75rem;color:var(--fg3)">Stage 6 &rarr; Stage 2</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--cyan);margin-bottom:8px">Container Extraction</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.6">Each child file from ZIP, OLE2, PDF, etc. gets a full recursive scan. Depth-limited by DBVAR.</p>
+      <div class="mono mt-2" style="font-size:0.75rem;color:var(--fg3)">Stage 7 &rarr; Stage 2</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,145,0,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.3s" class="stat-card">
+      <h3 style="color:var(--orange);margin-bottom:8px">Script Deobfuscation</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.6">Each deobfuscated layer is scanned through Stages 3-10. Up to 32 passes per script.</p>
+      <div class="mono mt-2" style="font-size:0.75rem;color:var(--fg3)">Stage 8 &rarr; Stage 3</div>
+    </div>
+  </div>
+  <div class="code-block mt-3" style="font-size:0.78rem;max-width:800px;margin:1.5em auto 0"><span class="cmt">// Simplified recursive scan pseudocode</span>
+<span class="kw">fn</span> <span class="fn">scan_recursive</span>(data: &amp;[u8], depth: u32) {
+    <span class="kw">if</span> depth > MAX_DEPTH { <span class="kw">return</span>; }
+    <span class="fn">run_static_engines</span>(data);           <span class="cmt">// Stage 3</span>
+    <span class="kw">if</span> <span class="fn">is_pe</span>(data) {
+        <span class="kw">let</span> unpacked = <span class="fn">emulate_pe</span>(data);  <span class="cmt">// Stage 5</span>
+        <span class="fn">scan_recursive</span>(unpacked, depth+1); <span class="cmt">// Stage 6</span>
+    }
+    <span class="kw">for</span> child <span class="kw">in</span> <span class="fn">extract_container</span>(data) { <span class="cmt">// Stage 7</span>
+        <span class="fn">scan_recursive</span>(child, depth+1);
+    }
+    <span class="fn">deobfuscate_script</span>(data);           <span class="cmt">// Stage 8</span>
+    <span class="fn">run_brute</span>(data);                     <span class="cmt">// Stage 9</span>
+    <span class="fn">run_lua_scripts</span>(data);               <span class="cmt">// Stage 10</span>
+}</div>
+</div>
+</div>
+
+<!-- SLIDE 6: Stage Summary Grid -->
+<div class="slide" data-slide="6">
+<div class="slide-inner center-col">
+  <h2 class="glow-green mb-2">All 13 Stages at a Glance</h2>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;max-width:1400px">
+    <div class="stat-card" style="transition-delay:0.05s;border-left:3px solid var(--cyan);text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">01 Entry Point</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">__rsignal dispatch</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.1s;border-left:3px solid var(--cyan);text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">02 FRIENDLY_FILE</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">SHA-256 whitelist</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;border-left:3px solid var(--green);text-align:left;padding:12px">
+      <span class="label" style="color:var(--green)">03 Static Cascade</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">9 static sig engines</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-left:3px solid var(--orange);text-align:left;padding:12px">
+      <span class="label" style="color:var(--orange)">04 Attr Collection</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">HashSet&lt;String&gt;</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;border-left:3px solid var(--purple);text-align:left;padding:12px">
+      <span class="label" style="color:var(--purple)">05 PE Emulation</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">x86/x64 CPU emu</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;border-left:3px solid var(--green);text-align:left;padding:12px">
+      <span class="label" style="color:var(--green)">06 Unpack Scan</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">Post-emu rescan</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.35s;border-left:3px solid var(--cyan);text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">07 Containers</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">25+ formats</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.4s;border-left:3px solid var(--orange);text-align:left;padding:12px">
+      <span class="label" style="color:var(--orange)">08 Script Deob</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">PS/VBS/JS/BAT</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.45s;border-left:3px solid var(--yellow);text-align:left;padding:12px">
+      <span class="label" style="color:var(--yellow)">09 BRUTE</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">Polymorphic match</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.5s;border-left:3px solid var(--cyan);text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">10 Lua Scripts</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">59K scripts</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.55s;border-left:3px solid var(--purple);text-align:left;padding:12px">
+      <span class="label" style="color:var(--purple)">11 AAGG Eval</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">Boolean expressions</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.6s;border-left:3px solid var(--cyan);text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">12 MAPS Cloud</span>
+      <span style="display:block;font-size:0.72rem;color:var(--fg2);margin-top:4px">Bond + FASTPATH</span>
+    </div>
+  </div>
+  <div class="stat-card mt-2" style="transition-delay:0.65s;border:2px solid rgba(57,255,20,0.4);min-width:200px">
+    <span class="num glow-green" style="font-size:1.2rem">13 Verdict Resolution</span>
+    <span class="label">Merge detections &rarr; final threat name</span>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: Decision Points -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Key Decision Points</h2>
+  <p class="desc mb-2">What triggers each major pipeline branch?</p>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+      <span class="name" style="color:var(--cyan)">FRIENDLY_FILE</span>
+      <span class="detail">SHA-256 in whitelist &rarr; <strong>skip entire pipeline</strong> &rarr; return Clean</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s">
+      <span class="name" style="color:var(--green)">Static Detection</span>
+      <span class="detail">High-confidence match &rarr; may skip emulation (configurable via attributes)</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.2s">
+      <span class="name" style="color:var(--purple)">PE Emulation</span>
+      <span class="detail">is_pe(data) &rarr; trigger emulation. Controlled by <code>pea_force_unpacking</code>, <code>pea_disable_static_unpacking</code></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s">
+      <span class="name" style="color:var(--orange)">Container Extract</span>
+      <span class="detail">Magic byte detection &rarr; format-specific extractor. Depth limited by DBVAR</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.3s">
+      <span class="name" style="color:var(--yellow)">Script Deob</span>
+      <span class="detail">Language auto-detect (extension + content) &rarr; apply transforms until fixed-point</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.35s">
+      <span class="name" style="color:var(--cyan)">MAPS Cloud</span>
+      <span class="detail">Lowfi detection + MAPS enabled &rarr; Bond serialize &rarr; POST to MAPS endpoint (*.wdcp.microsoft.com, e.g. fastpath)</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: Data Flow -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">Data Flow Between Stages</h2>
+  <p class="desc mb-2">What passes between pipeline stages</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--purple)">ScanContext (per-file)</h3>
+      <div class="code-block" style="font-size:0.78rem"><span class="kw">struct</span> <span class="fn">ScanContext</span> {
+  file_data:    <span class="kw">&amp;[u8]</span>,
+  file_path:    <span class="kw">Option&lt;&amp;str&gt;</span>,
+  file_size:    <span class="kw">u64</span>,
+  content_type: <span class="kw">ContentType</span>,
+  scan_depth:   <span class="kw">u32</span>,
+  <span class="str">// Accumulated across all stages:</span>
+  attributes:   <span class="kw">HashSet&lt;String&gt;</span>,
+  threat_list:  <span class="kw">Vec&lt;ThreatRecord&gt;</span>,
+  <span class="str">// PE-specific:</span>
+  pe_info:      <span class="kw">Option&lt;PeMetadata&gt;</span>,
+  emulator_ctx: <span class="kw">Option&lt;EmuContext&gt;</span>,
+  scan_flags:   <span class="kw">u32</span>,
+}</div>
+    </div>
+    <div>
+      <h3 style="color:var(--purple)">Attribute Flow</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);transition-delay:0.1s;padding:10px 14px;text-align:left"><strong style="color:var(--green)">Static Engines</strong> &rarr; deposit HSTR: / SIGATTR: attributes</div>
+        <div style="text-align:center;color:var(--fg3)">&darr;</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);transition-delay:0.15s;padding:10px 14px;text-align:left"><strong style="color:var(--purple)">PE Emulation</strong> &rarr; deposit FOP: / TUNNEL: / THREAD: attributes</div>
+        <div style="text-align:center;color:var(--fg3)">&darr;</div>
+        <div class="flow-node" style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);transition-delay:0.2s;padding:10px 14px;text-align:left"><strong style="color:var(--cyan)">Lua Scripts</strong> &rarr; deposit mp.setattribute() custom attributes</div>
+        <div style="text-align:center;color:var(--fg3)">&darr;</div>
+        <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.5);transition-delay:0.25s;padding:10px 14px;text-align:left;color:var(--purple)"><strong>AAGGREGATOR</strong> evaluates boolean expressions over all collected attributes</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: By The Numbers -->
+<div class="slide" data-slide="9">
+<div class="slide-inner center-col" style="justify-content:center">
+  <h2 class="glow-cyan mb-2">Pipeline By The Numbers</h2>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.05s"><span class="num glow-cyan" data-count="358756">0</span><span class="label">Threats Defined</span></div>
+    <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-green" data-count="2433812">0</span><span class="label">MD5 Hashes</span></div>
+    <div class="stat-card" style="transition-delay:0.15s"><span class="num glow-purple" data-count="117563">0</span><span class="label">PEHSTR Rules</span></div>
+    <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-orange" data-count="691145">0</span><span class="label">KCRCE Entries</span></div>
+    <div class="stat-card" style="transition-delay:0.25s"><span class="num glow-cyan" data-count="59415">0</span><span class="label">Lua Scripts</span></div>
+    <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-green" data-count="4601">0</span><span class="label">FOP Rules</span></div>
+    <div class="stat-card" style="transition-delay:0.35s"><span class="num glow-purple" data-count="198">0</span><span class="label">WinAPI Handlers</span></div>
+    <div class="stat-card" style="transition-delay:0.4s"><span class="num glow-orange" data-count="973">0</span><span class="label">Virtual DLLs</span></div>
+    <div class="stat-card" style="transition-delay:0.45s"><span class="num glow-cyan" data-count="1358">0</span><span class="label">Deob Transforms</span></div>
+    <div class="stat-card" style="transition-delay:0.5s"><span class="num glow-green">25+</span><span class="label">Container Formats</span></div>
+    <div class="stat-card" style="transition-delay:0.55s"><span class="num glow-purple">9.3M</span><span class="label">TLV Entries</span></div>
+    <div class="stat-card" style="transition-delay:0.6s"><span class="num glow-orange">14.3 MB</span><span class="label">Binary Size</span></div>
+  </div>
+  <p class="mt-3" style="color:var(--fg3);font-size:0.85rem">All data from reverse engineering <span class="mono">mpengine.dll</span> v1.1.24120.x</p>
+  <p style="color:var(--fg3);font-size:0.75rem;margin-top:8px">d3fender project &mdash; 114,400 lines of Rust &mdash; 1,575 tests across 94 source files</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

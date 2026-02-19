@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 4: AAGGREGATOR Attribute Collection</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--orange),var(--yellow));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.glow-yellow{color:var(--yellow);text-shadow:0 0 30px rgba(255,215,64,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--orange);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--orange);box-shadow:0 0 12px var(--orange);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Pipeline Stage 4</p>
+  <h1 class="glow-orange">AAGGREGATOR<br>Attribute Collection</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">How engines deposit attributes for boolean evaluation</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange" data-count="302">0</span><span class="label">PE Attributes (pea_*)</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan">8</span><span class="label">API Functions</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">5</span><span class="label">Format Collections</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple">2</span><span class="label">AAGG Sig Types</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">SIGNATURE_TYPE_AAGGREGATOR @ 0x10986B3C &mdash; SIGNATURE_TYPE_AAGGREGATOREX @ 0x10986E28</p>
+</div>
+</div>
+
+<!-- SLIDE 2: What Are Attributes? -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">What Are Attributes?</h2>
+  <p class="desc mb-2">Attributes are string-valued facts accumulated into a <code>HashSet&lt;String&gt;</code> on the ScanContext throughout the entire pipeline.</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">Key Insight</h3>
+      <p class="desc">Stage 4 is not a single step &mdash; it is a <strong>continuous process</strong> that runs across all stages. Every engine deposits attributes as it fires. The attribute set only grows; it is never cleared during a file scan.</p>
+      <p class="desc mt-2">At the end (Stage 11), the AAGGREGATOR evaluates boolean expressions over the complete attribute set to produce compound detections.</p>
+      <div class="code-block mt-2" style="font-size:0.78rem"><span class="cmt">// Attribute set on ScanContext</span>
+<span class="kw">struct</span> <span class="fn">ScanContext</span> {
+    attributes: <span class="kw">HashSet&lt;String&gt;</span>,
+    namedattributes: <span class="kw">HashMap&lt;String, String&gt;</span>,
+    sigattrevents: <span class="kw">Vec&lt;SigAttrEvent&gt;</span>,
+}</div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">Attribute API Functions</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="transition-delay:0.1s"><span class="name" style="color:var(--cyan)">set_mpattribute</span><span class="detail mono" style="font-size:0.7rem">@ 0x1097EC28</span></div>
+        <div class="engine-bar" style="transition-delay:0.15s"><span class="name" style="color:var(--cyan)">set_mpattributeex</span><span class="detail mono" style="font-size:0.7rem">@ 0x1097EC38</span></div>
+        <div class="engine-bar" style="transition-delay:0.2s"><span class="name" style="color:var(--green)">get_mpattribute</span><span class="detail mono" style="font-size:0.7rem">@ 0x1097EBC8</span></div>
+        <div class="engine-bar" style="transition-delay:0.25s"><span class="name" style="color:var(--green)">get_mpattributevalue</span><span class="detail mono" style="font-size:0.7rem">@ 0x1097EBD8</span></div>
+        <div class="engine-bar" style="transition-delay:0.3s"><span class="name" style="color:var(--green)">get_mpattributesubstring</span><span class="detail mono" style="font-size:0.7rem">@ 0x1097EBF0</span></div>
+        <div class="engine-bar" style="transition-delay:0.35s"><span class="name" style="color:var(--purple)">aggregate_mpattribute</span><span class="detail mono" style="font-size:0.7rem">@ 0x1097EC60</span></div>
+        <div class="engine-bar" style="transition-delay:0.4s"><span class="name" style="color:var(--red)">clear_mpattribute</span><span class="detail mono" style="font-size:0.7rem">@ 0x1097EC4C</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Attribute Producers -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Attribute Producers</h2>
+  <p class="desc mb-2">Every major scan stage deposits attributes into the shared set</p>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.1s">
+      <span class="idx">03</span>
+      <span class="name" style="color:var(--green)">Static Engines</span>
+      <span class="detail">PEHSTR &rarr; <code>HSTR:Win32/xxx</code> &nbsp;|&nbsp; KCRCE, NID, BM_STATIC &rarr; pattern attributes</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.15s">
+      <span class="idx">04</span>
+      <span class="name" style="color:var(--orange)">PE Analysis</span>
+      <span class="detail">302 <code>pea_*</code> attributes: <code>pea_packed</code>, <code>pea_isdll</code>, <code>pea_epscn_writable</code>, ...</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.2s">
+      <span class="idx">05</span>
+      <span class="name" style="color:var(--purple)">PE Emulation</span>
+      <span class="detail"><code>FOP:xxx</code> opcode traces &nbsp;|&nbsp; <code>TUNNEL:xxx</code> patterns &nbsp;|&nbsp; <code>THREAD:xxx</code> behavior</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.25s">
+      <span class="idx">09</span>
+      <span class="name" style="color:var(--yellow)">BRUTE</span>
+      <span class="detail"><code>BRUTE:PDF:Feature:xxx</code> polymorphic pattern attributes</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.3s">
+      <span class="idx">10</span>
+      <span class="name" style="color:var(--cyan)">Lua Scripts</span>
+      <span class="detail"><code>mp.set_mpattribute()</code> / <code>mp.set_mpattributeex()</code> &mdash; arbitrary named attributes</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.35s">
+      <span class="idx">*</span>
+      <span class="name" style="color:var(--red)">Infrastructure</span>
+      <span class="detail"><code>!</code>-prefixed threat names: collected as attributes, <strong>never</strong> standalone detections</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: PE Attributes Deep Dive -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">PE Attributes: 302 pea_* Flags</h2>
+  <p class="desc mb-2">Structural properties extracted from PE header analysis, before emulation begins</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--green)">Section Properties</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="str">pea_packed</span>              @ <span class="num">0x10A10B1C</span>
+<span class="str">pea_epscn_writable</span>      @ <span class="num">0x10A10A30</span>
+<span class="str">pea_lastscn_writable</span>    @ <span class="num">0x10A109EC</span>
+<span class="str">pea_epscn_falign</span>        @ <span class="num">0x10A10A1C</span>
+<span class="str">pea_lastscn_falign</span>      @ <span class="num">0x10A109D8</span>
+<span class="str">pea_epscn_islast</span>        @ <span class="num">0x10A10A68</span>
+<span class="str">pea_secmissize</span>          @ <span class="num">0x10A10B28</span>
+<span class="str">pea_secmisaligned</span>       @ <span class="num">0x10A10B38</span>
+<span class="str">pea_firstsectwritable</span>   @ <span class="num">0x10A10B04</span></div>
+      <h3 class="mt-2" style="color:var(--green)">Entry Point</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="str">pea_entrybyte55</span>         @ <span class="num">0x10A10BE0</span>  <span class="cmt">; push ebp</span>
+<span class="str">pea_entrybyte90</span>         @ <span class="num">0x10A10BF0</span>  <span class="cmt">; nop</span>
+<span class="str">pea_entrybyte60</span>         @ <span class="num">0x10A10C00</span>  <span class="cmt">; pushad</span>
+<span class="str">pea_epcallnext</span>          @ <span class="num">0x10A10ACC</span>  <span class="cmt">; call $+5</span>
+<span class="str">pea_epatscnstart</span>        @ <span class="num">0x10A10AB8</span>
+<span class="str">pea_epinfirstsect</span>       @ <span class="num">0x10A10B58</span>
+<span class="str">pea_epoutofimage</span>        @ <span class="num">0x10A10BD4</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">File Type</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="str">pea_isdll</span>               @ <span class="num">0x10A10B4C</span>
+<span class="str">pea_isexe</span>               @ <span class="num">0x10A10BD4</span>
+<span class="str">pea_isdriver</span>            @ <span class="num">0x10A10C24</span>
+<span class="str">pea_isdamaged</span>           @ <span class="num">0x10A10C64</span>
+<span class="str">pea_no_relocs</span>           @ <span class="num">0x10A10A44</span>
+<span class="str">pea_no_imports</span>          @ <span class="num">0x10A10C34</span>
+<span class="str">pea_hasexports</span>          @ <span class="num">0x10A10BAC</span>
+<span class="str">pea_hasboundimports</span>     @ <span class="num">0x10A10C10</span>
+<span class="str">pea_headerchecksum0</span>     @ <span class="num">0x10A10C50</span></div>
+      <h3 class="mt-2" style="color:var(--green)">Behavioral Hints</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="str">pea_hasstandardentry</span>    @ <span class="num">0x10A10C74</span>
+<span class="str">pea_requires9x</span>          @ <span class="num">0x10A10C8C</span>
+<span class="str">pea_usesuninitializedregs</span> @ <span class="num">0x10A10C9C</span>
+<span class="str">pea_hasappendeddata</span>     @ <span class="num">0x10A10BBC</span>
+<span class="str">pea_isreported</span>          @ <span class="num">0x10A10CB8</span>
+<span class="str">pea_isgeneric</span>           @ <span class="num">0x10A10CC8</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: Infrastructure Markers -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-red mb-1" style="color:var(--red);text-shadow:0 0 30px rgba(255,82,82,0.4)">Infrastructure Markers: The ! Prefix</h2>
+  <p class="desc mb-2">Threat names starting with <code>!</code> are deposited as attributes but never returned as detections</p>
+  <div class="split-60-40">
+    <div>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">// Multi-signal detection example</span>
+
+<span class="cmt">// Step 1: Static engine fires</span>
+attributes.<span class="fn">insert</span>(<span class="str">"HSTR:Win32/Emotet.A!dha"</span>);
+
+<span class="cmt">// Step 2: PE analysis fires</span>
+attributes.<span class="fn">insert</span>(<span class="str">"pea_packed"</span>);
+attributes.<span class="fn">insert</span>(<span class="str">"pea_epscn_writable"</span>);
+
+<span class="cmt">// Step 3: Emulation fires an infra marker</span>
+<span class="cmt">//   Deposited as attribute, NOT as a detection!</span>
+attributes.<span class="fn">insert</span>(<span class="str">"!InfraOnly:Trojan:Win32/DynUnpack"</span>);
+
+<span class="cmt">// Step 4: AAGGREGATOR evaluates (Stage 11)</span>
+<span class="cmt">// Rule: "HSTR:Win32/Emotet.A!dha</span>
+<span class="cmt">//        &amp; pea_packed</span>
+<span class="cmt">//        &amp; !InfraOnly:Trojan:Win32/DynUnpack"</span>
+<span class="cmt">//</span>
+<span class="cmt">// ALL present ==> detection fires:</span>
+<span class="cmt">//   "Trojan:Win32/Emotet.RPX!MTB"</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--red)">Why Infrastructure?</h3>
+      <p class="desc">Infrastructure markers let Defender build <strong>compound detections</strong> that require evidence from multiple engines.</p>
+      <p class="desc mt-2">A single <code>!</code>-prefixed match is never enough for a detection. It must be combined with other attributes via AAGGREGATOR boolean expressions.</p>
+      <div class="stat-card mt-2" style="transition-delay:0.3s;border:1px solid rgba(255,82,82,0.3)">
+        <span class="num" style="color:var(--red)">!</span>
+        <span class="label">Prefix means "infrastructure only"</span>
+      </div>
+      <div class="stat-card mt-1" style="transition-delay:0.4s;border:1px solid rgba(255,145,0,0.3)">
+        <span class="num" style="color:var(--orange)">&amp;</span>
+        <span class="label">Combined via boolean AND/OR/NOT</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: Format-Specific Attribute Collections -->
+<div class="slide" data-slide="6">
+<div class="slide-inner center-col">
+  <h2 class="glow-purple mb-1">Format-Specific Attribute Collections</h2>
+  <p class="desc mb-2">Separate attribute namespaces for each binary format</p>
+  <div class="stat-grid stat-grid-3" style="width:100%;max-width:1000px">
+    <div class="stat-card" style="transition-delay:0.1s;border-left:3px solid var(--cyan)">
+      <span class="num glow-cyan" style="font-size:1.2rem">peattributes</span>
+      <span class="label">PE analysis flags</span>
+      <span class="mono" style="font-size:0.65rem;color:var(--fg3);display:block;margin-top:4px">@ 0x1097DC7C</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;border-left:3px solid var(--green)">
+      <span class="num glow-green" style="font-size:1.2rem">elfattributes</span>
+      <span class="label">ELF analysis flags</span>
+      <span class="mono" style="font-size:0.65rem;color:var(--fg3);display:block;margin-top:4px">@ 0x109E2378</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-left:3px solid var(--purple)">
+      <span class="num glow-purple" style="font-size:1.2rem">machoattributes</span>
+      <span class="label">Mach-O analysis flags</span>
+      <span class="mono" style="font-size:0.65rem;color:var(--fg3);display:block;margin-top:4px">@ 0x109E25F4</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;border-left:3px solid var(--orange)">
+      <span class="num glow-orange" style="font-size:1.2rem">namedattributes</span>
+      <span class="label">Engine-set named attrs</span>
+      <span class="mono" style="font-size:0.65rem;color:var(--fg3);display:block;margin-top:4px">@ 0x109E2690</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;border-left:3px solid var(--yellow)">
+      <span class="num glow-yellow" style="font-size:1.2rem">variableattributes</span>
+      <span class="label">Runtime-computed values</span>
+      <span class="mono" style="font-size:0.65rem;color:var(--fg3);display:block;margin-top:4px">@ 0x109EC714</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.35s;border-left:3px solid var(--fg3)">
+      <span class="num" style="font-size:1.2rem;color:var(--fg2)">attributelist</span>
+      <span class="label">Master attribute index</span>
+      <span class="mono" style="font-size:0.65rem;color:var(--fg3);display:block;margin-top:4px">@ 0x109E03C4</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: Signature Attribute Log -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Signature Attribute Log (sigattr)</h2>
+  <p class="desc mb-2">Chronological record of attribute deposit events &mdash; head (first N) and tail (last N)</p>
+  <div class="split">
+    <div>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">// sigattr log structure</span>
+<span class="str">"sigattr_head"</span>            @ <span class="num">0x1097D710</span>
+<span class="str">"sigattr_tail"</span>            @ <span class="num">0x1097D720</span>
+<span class="str">"this_sigattrlog"</span>         @ <span class="num">0x1097D74C</span>
+<span class="str">"get_sigattr_event_count"</span> @ <span class="num">0x1097F37C</span>
+<span class="str">"sigattrevents"</span>           @ <span class="num">0x109E27B0</span>
+
+<span class="cmt">// Post-emulation log access</span>
+<span class="str">"get_postemu_sigattr_log_head"</span>
+                              @ <span class="num">0x10981A28</span>
+<span class="str">"get_postemu_sigattr_log_head_size"</span>
+                              @ <span class="num">0x10981A04</span>
+<span class="str">"get_postemu_sigattr_log_tail"</span>
+                              @ <span class="num">0x10981A6C</span>
+<span class="str">"get_postemu_sigattr_log_tail_size"</span>
+                              @ <span class="num">0x10981A48</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan)">Error Strings</h3>
+      <div class="code-block" style="font-size:0.68rem"><span class="str">"sigattrlog: head is empty"</span>
+    @ <span class="num">0x10B4F7C8</span>
+<span class="str">"sigattrlog: tail is empty"</span>
+    @ <span class="num">0x10B4F774</span>
+<span class="str">"Invalid index in sigattr log: %d"</span>
+    @ <span class="num">0x10B4F6F8</span>
+<span class="str">"Invalid index (0) in sigattr log"</span>
+    @ <span class="num">0x10B4F7E4</span>
+<span class="str">"sigattrlog not available"</span>
+    @ <span class="num">0x10B4F808</span>
+<span class="str">"this_sigattrlog not available"</span>
+    @ <span class="num">0x10B4F71C</span>
+<span class="str">"Invalid sigattr_head index"</span>
+    @ <span class="num">0x10B5214C</span></div>
+      <div class="stat-card mt-2" style="transition-delay:0.3s">
+        <span class="num glow-cyan" style="font-size:1rem">9</span>
+        <span class="label">Error handling paths in sigattr subsystem</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: Lua Attribute API -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Lua Attribute API</h2>
+  <p class="desc mb-2">59,415 Lua scripts can read and write attributes via the <code>mp.*</code> API</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--green)">Write Operations</h3>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">-- Set boolean attribute</span>
+mp.<span class="fn">set_mpattribute</span>(<span class="str">"my_indicator"</span>)
+
+<span class="cmt">-- Set key=value attribute</span>
+mp.<span class="fn">set_mpattributeex</span>(<span class="str">"entropy"</span>, <span class="str">"7.92"</span>)
+
+<span class="cmt">-- Bulk deposit from detection</span>
+mp.<span class="fn">aggregate_mpattribute</span>(result)</div>
+      <h3 class="mt-2" style="color:var(--green)">Read Operations</h3>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">-- Check existence</span>
+<span class="kw">local</span> packed = mp.<span class="fn">get_mpattribute</span>(<span class="str">"pea_packed"</span>)
+
+<span class="cmt">-- Get value</span>
+<span class="kw">local</span> val = mp.<span class="fn">get_mpattributevalue</span>(<span class="str">"entropy"</span>)
+
+<span class="cmt">-- Substring search</span>
+<span class="kw">local</span> m = mp.<span class="fn">get_mpattributesubstring</span>(<span class="str">"HSTR:"</span>)
+
+<span class="cmt">-- Enumerate matching</span>
+mp.<span class="fn">enum_mpattributesubstring</span>(<span class="str">"pea_"</span>,
+  <span class="kw">function</span>(attr)
+    <span class="cmt">-- callback for each match</span>
+  <span class="kw">end</span>)</div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">Error Handling</h3>
+      <div class="code-block" style="font-size:0.68rem"><span class="cmt">// aggregate errors</span>
+<span class="str">"lua_mp_aggregateattribute failed to get max MP attributes total size DC"</span>
+    @ <span class="num">0x10B4BD60</span>
+
+<span class="str">"lua_mp_aggregateattribute failed to get max MP attributes count DC"</span>
+    @ <span class="num">0x10B4BDA8</span>
+
+<span class="cmt">// sigattr alias errors</span>
+<span class="str">"this_sigattrlog[\"alias\"].%s failed with 0x%x!"</span>
+    @ <span class="num">0x10B4F558</span>
+
+<span class="str">"...only available in BM sigattr or invalid field name!"</span>
+    @ <span class="num">0x10B4F588</span></div>
+      <div class="stat-card mt-2" style="transition-delay:0.3s;border:1px solid rgba(57,255,20,0.3)">
+        <span class="num glow-green" style="font-size:1rem">Lowfi Suppression</span>
+        <span class="label">"Supressed lowfi per named attribute" @ 0x10A53FE8</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: Attribute Flow Diagram -->
+<div class="slide" data-slide="9">
+<div class="slide-inner center-col">
+  <h2 class="glow-orange mb-1">Attribute Flow: Producers &rarr; Consumers</h2>
+  <p class="desc mb-2">From engine deposits to AAGGREGATOR evaluation</p>
+  <div class="pipeline-track" style="max-width:1200px">
+    <div class="pipeline-dot"></div>
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+      <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);padding:8px 12px;transition-delay:0.05s;margin:4px;color:var(--green)">Static (HSTR:)</div>
+      <span class="flow-arrow" style="transition-delay:0.08s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);padding:8px 12px;transition-delay:0.1s;margin:4px;color:var(--orange)">PE Analysis (pea_*)</div>
+      <span class="flow-arrow" style="transition-delay:0.13s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);padding:8px 12px;transition-delay:0.15s;margin:4px;color:var(--purple)">Emulation (FOP:/TUNNEL:)</div>
+      <span class="flow-arrow" style="transition-delay:0.18s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);padding:8px 12px;transition-delay:0.2s;margin:4px;color:var(--yellow)">BRUTE (BRUTE:)</div>
+      <span class="flow-arrow" style="transition-delay:0.23s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);padding:8px 12px;transition-delay:0.25s;margin:4px;color:var(--cyan)">Lua (custom)</div>
+      <span class="flow-arrow" style="transition-delay:0.28s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(255,82,82,0.1);border:1px solid rgba(255,82,82,0.3);padding:8px 12px;transition-delay:0.3s;margin:4px;color:var(--red)">Infra (!prefix)</div>
+    </div>
+  </div>
+  <div style="font-size:1.5rem;color:var(--fg3);margin:16px 0">&darr;</div>
+  <div class="stat-card" style="transition-delay:0.4s;min-width:400px;border:2px solid rgba(255,145,0,0.4)">
+    <span class="num glow-orange" style="font-size:1.1rem">HashSet&lt;String&gt; &mdash; Attribute Set</span>
+    <span class="label">Monotonically growing, never cleared during scan</span>
+  </div>
+  <div style="font-size:1.5rem;color:var(--fg3);margin:16px 0">&darr;</div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="transition-delay:0.5s;border:1px solid rgba(179,136,255,0.3);min-width:180px">
+      <span class="num glow-purple" style="font-size:0.9rem">AAGGREGATOR</span>
+      <span class="label">Stage 11: Boolean eval</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.55s;border:1px solid rgba(0,229,255,0.3);min-width:180px">
+      <span class="num glow-cyan" style="font-size:0.9rem">Lua Scripts</span>
+      <span class="label">Stage 10: Read attrs</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.6s;border:1px solid rgba(57,255,20,0.3);min-width:180px">
+      <span class="num glow-green" style="font-size:0.9rem">MAPS Cloud</span>
+      <span class="label">Stage 12: Serialize</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 10: Serialization & Cloud -->
+<div class="slide" data-slide="10">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Serialization &amp; Cloud Delivery</h2>
+  <p class="desc mb-2">Attributes are serialized for internal logging and MAPS cloud queries</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--cyan)">Serialization Format Strings</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="str">"MpInternal_sigattrevents="</span>
+    @ <span class="num">0x10B76A58</span>
+<span class="str">"sigattrevents="</span>
+    @ <span class="num">0x10A545FC</span>
+<span class="str">"namedattributes="</span>
+    @ <span class="num">0x10A54580</span>
+<span class="str">"machoattributes=%s"</span>
+    @ <span class="num">0x10A54448</span>
+<span class="str">"elfattributes="</span>
+    @ <span class="num">0x10A2EC9C</span>
+<span class="str">"machoattributes="</span>
+    @ <span class="num">0x10A2DA08</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan)">Log Files</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+          <span class="name" style="color:var(--cyan);font-size:0.85rem">attributes.log</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x109C5F88 (UTF-16)</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.15s">
+          <span class="name" style="color:var(--cyan);font-size:0.85rem">attributes-%d.log</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x109C5F64 (UTF-16)</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.2s">
+          <span class="name" style="color:var(--green);font-size:0.85rem">lowfis.log</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x109C5F4C (UTF-16)</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.25s">
+          <span class="name" style="color:var(--green);font-size:0.85rem">lowfis-%d.log</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x109C5F30 (UTF-16)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 11: Summary -->
+<div class="slide" data-slide="11">
+<div class="slide-inner center-col" style="justify-content:center">
+  <h2 class="glow-orange mb-2">Stage 4 Summary</h2>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.05s"><span class="num glow-orange" data-count="302">0</span><span class="label">pea_* Attributes</span></div>
+    <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-cyan">8</span><span class="label">API Functions</span></div>
+    <div class="stat-card" style="transition-delay:0.15s"><span class="num glow-green">5</span><span class="label">Format Collections</span></div>
+    <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-purple">2</span><span class="label">AAGG Sig Types</span></div>
+    <div class="stat-card" style="transition-delay:0.25s"><span class="num glow-yellow">6+</span><span class="label">Attribute Prefixes</span></div>
+    <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-cyan">9</span><span class="label">Sigattr Error Paths</span></div>
+    <div class="stat-card" style="transition-delay:0.35s"><span class="num glow-green" data-count="59415">0</span><span class="label">Lua Scripts (consumers)</span></div>
+    <div class="stat-card" style="transition-delay:0.4s"><span class="num glow-orange" data-count="162">0</span><span class="label">Signature Types</span></div>
+  </div>
+  <p class="mt-3" style="color:var(--fg3);font-size:0.85rem">All data from reverse engineering <span class="mono">mpengine.dll</span> v1.1.24120.x</p>
+  <div style="display:flex;gap:24px;margin-top:24px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;border:1px solid rgba(57,255,20,0.3);min-width:160px">
+      <span style="font-size:0.8rem;color:var(--green)">&larr; Stage 3</span>
+      <span class="label">Static Engine Cascade</span>
+    </div>
+    <div class="stat-card" style="opacity:1;transform:none;border:1px solid rgba(179,136,255,0.3);min-width:160px">
+      <span style="font-size:0.8rem;color:var(--purple)">Stage 5 &rarr;</span>
+      <span class="label">PE Emulation</span>
+    </div>
+    <div class="stat-card" style="opacity:1;transform:none;border:1px solid rgba(255,145,0,0.3);min-width:160px">
+      <span style="font-size:0.8rem;color:var(--orange)">Stage 11 &rarr;</span>
+      <span class="label">AAGGREGATOR Evaluation</span>
+    </div>
+  </div>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

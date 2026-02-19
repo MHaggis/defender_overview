@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 10 — Lua Script Execution Engine</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--purple));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Pipeline Stage 10</p>
+  <h1 class="glow-cyan">Lua Script Execution Engine</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">59,415 programmable detection scripts powered by Lua 5.1</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan" data-count="59415">0</span><span class="label">Lua Scripts</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green" data-count="106">0</span><span class="label">mp.* API Functions</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple" data-count="14">0</span><span class="label">MpCommon.* Functions</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">5.1</span><span class="label">Lua Version</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">From reverse engineering mpengine.dll &mdash; "Lua 5.1" @ 0x1098C124</p>
+</div>
+</div>
+
+<!-- SLIDE 2: Why Lua? -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Why Embedded Lua?</h2>
+  <p class="desc mb-2">When byte-pattern signatures are not enough, Lua provides full programmability</p>
+  <div class="split">
+    <div>
+      <p class="desc">Lua scripts can implement multi-step decision trees, cross-reference attributes from all prior stages, parse file structures programmatically, and apply heuristic scoring &mdash; all delivered via VDM updates without engine binary changes.</p>
+      <p class="desc mt-2">The Lua 5.1 runtime is compiled directly into mpengine.dll (not a separate DLL). Each script runs in an isolated <code>lua_State</code> with strict resource limits.</p>
+      <div class="code-block mt-2" style="font-size:0.78rem"><span class="cmt">-- Example: Check PE entropy + imports + signing</span>
+<span class="kw">local</span> pe = <span class="fn">mp.getpeheader</span>()
+<span class="kw">if</span> pe <span class="kw">and</span> pe.entropy > <span class="num">7.5</span> <span class="kw">then</span>
+    <span class="kw">if</span> <span class="kw">not</span> <span class="fn">mp.issignedfile</span>() <span class="kw">then</span>
+        <span class="fn">mp.setattribute</span>(<span class="str">"HighEntropyUnsigned"</span>)
+    <span class="kw">end</span>
+<span class="kw">end</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">Script Capabilities</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s"><span class="name" style="color:var(--cyan)">File I/O</span><span class="detail">Read raw bytes, check size, get filename</span></div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s"><span class="name" style="color:var(--green)">PE Analysis</span><span class="detail">Sections, imports, headers, entropy</span></div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.2s"><span class="name" style="color:var(--purple)">Signatures</span><span class="detail">Verify digital signatures, check trust</span></div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s"><span class="name" style="color:var(--orange)">Attributes</span><span class="detail">Get/set scan attributes for AAGGREGATOR</span></div>
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.3s"><span class="name" style="color:var(--yellow)">Detection</span><span class="detail">Fire threats, set lowfi markers, create VFOs</span></div>
+        <div class="engine-bar" style="border-left-color:var(--pink);transition-delay:0.35s"><span class="name" style="color:var(--pink)">JSON/Crypto</span><span class="detail">Parse JSON, regex, hash computation</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Architecture -->
+<div class="slide" data-slide="3">
+<div class="slide-inner center-col">
+  <h2 class="glow-purple mb-1">LuaRunner Architecture</h2>
+  <p class="desc mb-2">Each script gets an isolated Lua 5.1 state with registered engine APIs</p>
+  <div class="split" style="align-items:start">
+    <div class="code-block" style="font-size:0.75rem;text-align:left"><span class="cmt">// LuaRunner per-script execution context</span>
+
+<span class="fn">Registry Keys</span> (in lua_State):
+  <span class="str">LuaRunnerPanicsRegistryName</span>
+    @ <span class="num">0x10B6B414</span>
+  <span class="str">LuaRunnerScriptNameRegistryName</span>
+    @ <span class="num">0x10B6B430</span>
+  <span class="str">LuaRunnerInstructionsCountRegistryName</span>
+    @ <span class="num">0x10B6B478</span>
+
+<span class="fn">Instruction Limit</span>:
+  <span class="str">SetLuaInstrLimit</span>
+    @ <span class="num">0x10B6B4D0</span>
+  <span class="str">"exceeded the limit."</span>
+    @ <span class="num">0x10B6B3EC</span>
+
+<span class="fn">ETW Trace</span>:
+  <span class="str">Engine.Scan.LuaExecute</span>
+    @ <span class="num">0x10A33930</span></div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="stat-card" style="transition-delay:0.1s;border-left:3px solid var(--cyan);text-align:left;padding:14px">
+        <span class="label" style="color:var(--cyan)">Lua 5.1 State</span>
+        <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Isolated lua_State* per script. Lightweight (~40KB RAM).</span>
+      </div>
+      <div class="stat-card" style="transition-delay:0.15s;border-left:3px solid var(--green);text-align:left;padding:14px">
+        <span class="label" style="color:var(--green)">mp.* API (106 functions)</span>
+        <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">Registered into global table. Bridge to engine internals.</span>
+      </div>
+      <div class="stat-card" style="transition-delay:0.2s;border-left:3px solid var(--purple);text-align:left;padding:14px">
+        <span class="label" style="color:var(--purple)">MpCommonLua Library</span>
+        <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">"MpCommonLua" @ 0x10B6E2CC &mdash; 14 higher-level functions.</span>
+      </div>
+      <div class="stat-card" style="transition-delay:0.25s;border-left:3px solid var(--orange);text-align:left;padding:14px">
+        <span class="label" style="color:var(--orange)">Resource Limits</span>
+        <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">12 configurable limits: instructions, memory, I/O, VFOs, JSON.</span>
+      </div>
+      <div class="stat-card" style="transition-delay:0.3s;border-left:3px solid var(--yellow);text-align:left;padding:14px">
+        <span class="label" style="color:var(--yellow)">Panic Handler</span>
+        <span style="display:block;font-size:0.75rem;color:var(--fg2);margin-top:4px">"LuaRunnerPanicsRegistryName" @ 0x10B6B414 &mdash; crash recovery.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: CLuaStandaloneLibrary Templates -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">CLuaStandaloneLibrary Templates</h2>
+  <p class="desc mb-2">9+ C++ template instantiations provide native functions to Lua scripts</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.05s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--cyan);font-size:0.8rem">LsaMpCommonLib</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C781D8 &mdash; MpCommon API access</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.1s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--green);font-size:0.8rem">LsaVersioning</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C78294 &mdash; Version info access</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.15s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--purple);font-size:0.8rem">LsaSysIoLib</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C78490 &mdash; System I/O operations</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.2s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--orange);font-size:0.8rem">LsaCrypto</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C784E0 &mdash; Cryptographic ops</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.25s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--yellow);font-size:0.8rem">LuaHipsLib</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C887A0 &mdash; Host Intrusion Prevention</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--pink);transition-delay:0.3s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--pink);font-size:0.8rem">LsaMpDetectionLib</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C92478 &mdash; Detection management</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.35s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--cyan);font-size:0.8rem">CLsaFfrLib</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C926AC &mdash; File/folder remediation</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.4s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--green);font-size:0.8rem">CLsaRemediationLib</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C926FC &mdash; Remediation actions</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.45s;flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="name" style="color:var(--purple);font-size:0.8rem">LsaImageConfig</span>
+      <span class="detail" style="font-size:0.65rem">@ 0x10C9275C &mdash; Image configuration</span>
+    </div>
+  </div>
+  <p class="desc mt-2" style="font-size:0.8rem">All RTTI type descriptors extracted from .data section</p>
+</div>
+</div>
+
+<!-- SLIDE 5: Resource Limits -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Sandbox &amp; Resource Limits</h2>
+  <p class="desc mb-2">Every resource a Lua script can consume is hard-limited and configurable via DBVAR</p>
+  <div class="split">
+    <div class="stat-grid stat-grid-2x3" style="gap:10px">
+      <div class="stat-card" style="transition-delay:0.05s"><span class="num glow-cyan" style="font-size:1rem">Instructions</span><span class="label">SetLuaInstrLimit<br>@ 0x10B6B4D0</span></div>
+      <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-green" style="font-size:1rem">Buffer Size</span><span class="label">MpLuaMaxBufferSize<br>@ 0x10B4B768</span></div>
+      <div class="stat-card" style="transition-delay:0.15s"><span class="num glow-purple" style="font-size:1rem">File Reads</span><span class="label">MpLuaMaxFileReadTotalSize<br>@ 0x10B4B734</span></div>
+      <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-orange" style="font-size:1rem">Attributes</span><span class="label">MpLuaMaxAttributesCount<br>@ 0x10B4B704</span></div>
+      <div class="stat-card" style="transition-delay:0.25s"><span class="num glow-cyan" style="font-size:1rem">VFO Count</span><span class="label">MpLuaMaxVfoCount<br>@ 0x10B4B7E4</span></div>
+      <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-green" style="font-size:1rem">Table Size</span><span class="label">MpLuaMaxTableElements<br>@ 0x10B4B898</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan)">JSON Parsing Limits</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="fn">MpLuaJsonMaxNestingDepth</span>
+  @ <span class="num">0x10B6B230</span>
+<span class="fn">MpLuaJsonMaxDataSize</span>
+  @ <span class="num">0x10B6B264</span>
+<span class="fn">MpLuaJsonMaxElementsPerLevel</span>
+  @ <span class="num">0x10B6B290</span></div>
+      <h3 class="mt-2" style="color:var(--cyan)">Performance Thresholds</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="fn">MpExpensiveSignatureThresholdLua</span>
+  @ <span class="num">0x10B4B688</span>
+<span class="fn">MpExpensiveSignatureThresholdIoBytesLua</span>
+  @ <span class="num">0x10B4B5E0</span>
+<span class="fn">MpExpensiveSignatureThresholdTotalTimeLua</span>
+  @ <span class="num">0x10B4B630</span></div>
+      <p class="desc mt-2" style="font-size:0.75rem">Scripts exceeding thresholds are flagged for performance telemetry, enabling Microsoft to optimize slow scripts in VDM updates.</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: mp.* API Functions -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">The mp.* API Surface</h2>
+  <p class="desc mb-2">~106 functions bridging Lua scripts to mpengine.dll internals</p>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+    <div class="stat-card" style="transition-delay:0.05s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">File I/O (~12)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.readfile()<br>mp.getfilesize()<br>mp.getfilename()</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--green)">PE Analysis (~15)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.getpesection()<br>mp.getpeheader()<br>mp.getimports()</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--purple)">Attributes (~8)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.setattribute()<br>mp.getattribute()<br>mp.hasattribute()</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--orange)">Hashing (~6)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.gethash()<br>mp.getsha256()<br>mp.getmd5()</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--yellow)">Signatures (~8)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.issignedfile()<br>mp.isknownfriendly()<br>mp.checkcert()</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--pink)">Detection (~8)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.fire()<br>mp.setlowfi()<br>mp.adddetection()</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.35s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">VFO (~8)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.createvfo()<br>mp.writevfo()<br>mp.closevfo()</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.4s;text-align:left;padding:12px">
+      <span class="label" style="color:var(--green)">Bitwise (~6)</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px;font-family:var(--mono)">mp.bitor()<br>mp.bitand()<br>mp.bitxor()</span>
+    </div>
+  </div>
+  <div class="code-block mt-2" style="font-size:0.72rem;max-width:900px;margin:1em auto 0"><span class="cmt">// Error strings confirm API existence:</span>
+<span class="str">"mp.readfile(): MpLuaMaxFileReadTotalSize(%lld) reached"</span>  @ <span class="num">0x10B4C050</span>
+<span class="str">"mp.readfile(): MpLuaMaxBufferSize(%lld) reached"</span>        @ <span class="num">0x10B4C088</span>
+<span class="str">"Lua IsSignedFile(%ls, CheckTrust: %ls, ...)"</span>            @ <span class="num">0x10B4CEA0</span>
+<span class="str">"Lua IsKnownFriendly(%ls, UseCache: %ls, ...)"</span>           @ <span class="num">0x10B4D9A8</span></div>
+</div>
+</div>
+
+<!-- SLIDE 7: MpCommon Library -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">MpCommon.* Library</h2>
+  <p class="desc mb-2">"MpCommonLua" @ 0x10B6E2CC &mdash; 14 higher-level functions for advanced operations</p>
+  <div class="split-60-40">
+    <div>
+      <h3 style="color:var(--purple)">Key Functions</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.1s">
+          <span class="name" style="color:var(--purple);font-size:0.8rem">BinaryRegExpSearch</span>
+          <span class="detail">Binary regex pattern matching over raw file bytes</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.15s">
+          <span class="name" style="color:var(--red);font-size:0.8rem">ReportFilelessResource</span>
+          <span class="detail">Report memory/UEFI/BITSjob fileless attack resources</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.2s">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">AddBlockingFirewallRule</span>
+          <span class="detail">Add Windows Firewall rules for remediation</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.25s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">GetIisInstallPaths</span>
+          <span class="detail">Enumerate IIS installation paths for web shell detection</span>
+        </div>
+      </div>
+      <div class="code-block mt-2" style="font-size:0.7rem"><span class="cmt">// Error strings from MpCommon.ReportFilelessResource:</span>
+<span class="str">"...GetResourceBuffer() failed"</span>   @ <span class="num">0x10B6DD3C</span>
+<span class="str">"...CreateTrackingId() failed"</span>    @ <span class="num">0x10B6DD7C</span>
+<span class="str">"...no global callback"</span>           @ <span class="num">0x10B6DDD8</span>
+<span class="str">"...only bitsjob and uefi based"</span>  @ <span class="num">0x10B6E268</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--purple)">Fileless Detection</h3>
+      <p class="desc" style="font-size:0.8rem">Lua scripts can detect and report threats found in:</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+        <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);transition-delay:0.3s;text-align:left;padding:10px 14px;color:var(--purple)">Process Memory</div>
+        <div class="flow-node" style="background:rgba(255,82,82,0.1);border:1px solid rgba(255,82,82,0.3);transition-delay:0.35s;text-align:left;padding:10px 14px;color:var(--red)">UEFI Firmware</div>
+        <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);transition-delay:0.4s;text-align:left;padding:10px 14px;color:var(--orange)">BITS Transfer Jobs</div>
+      </div>
+      <p class="desc mt-2" style="font-size:0.75rem;color:var(--fg3)">LsaMpCommonLib.EnumerateFirmwareEnvironmentVariables @ 0x10B6E0B0</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: BM Lua Integration -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">BM Lua: Behavioral Monitoring</h2>
+  <p class="desc mb-2">Separate Lua execution path for real-time behavioral event analysis</p>
+  <div class="split">
+    <div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div class="flow-node" style="background:rgba(255,145,0,0.15);border:1px solid rgba(255,145,0,0.4);transition-delay:0.1s;padding:12px 20px;color:var(--orange);width:80%">Real-time BM Event<br><span style="font-size:0.65rem;color:var(--fg3)">(process create, file write, registry mod)</span></div>
+        <span class="flow-arrow" style="transition-delay:0.15s;font-size:1.5em">&darr;</span>
+        <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);transition-delay:0.2s;padding:12px 20px;color:var(--cyan);width:80%">BMLua Dispatch<br><span style="font-size:0.65rem;color:var(--fg3)">"BMLua" @ 0x10A35A10</span></div>
+        <span class="flow-arrow" style="transition-delay:0.25s;font-size:1.5em">&darr;</span>
+        <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);transition-delay:0.3s;padding:12px 20px;color:var(--purple);width:80%">BM Lua Script Execution<br><span style="font-size:0.65rem;color:var(--fg3)">matched via sigattr</span></div>
+        <span class="flow-arrow" style="transition-delay:0.35s;font-size:1.5em">&darr;</span>
+        <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.4);transition-delay:0.4s;padding:12px 20px;color:var(--green);width:80%">Engine.Det.BMLuaSigattr<br><span style="font-size:0.65rem;color:var(--fg3)">@ 0x10A49468</span></div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">BM Lua Strings</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="str">"BMLua"</span>
+  @ <span class="num">0x10A35A10</span>
+
+<span class="str">"Engine.Det.BMLuaSigattr"</span>
+  @ <span class="num">0x10A49468</span>
+
+<span class="str">"!#AsimovBMLuaCall_"</span>
+  @ <span class="num">0x10A49480</span>
+
+<span class="str">"LuaCallSigattrBM"</span>
+  @ <span class="num">0x10A494B0</span>
+
+<span class="str">"ERROR: BM Lua calling a
+ SCAN_REPLY dependent API"</span>
+  @ <span class="num">0x10B4BCBB</span>
+
+<span class="str">"HIPS Lua function type %d
+ should not return a path"</span>
+  @ <span class="num">0x10A4A144</span></div>
+      <p class="desc mt-2" style="font-size:0.75rem">BM Lua scripts cannot call SCAN_REPLY dependent APIs &mdash; they operate in a restricted execution context.</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: Execution Flow -->
+<div class="slide" data-slide="9">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Execution Flow</h2>
+  <p class="desc mb-2">How a Lua script is loaded, executed, and its results collected</p>
+  <div class="code-block" style="font-size:0.75rem;max-width:1000px;margin:0 auto"><span class="kw">fn</span> <span class="fn">LuaExecute</span>(ctx: &amp;ScanContext) {
+    <span class="cmt">// ETW: "Engine.Scan.LuaExecute" @ 0x10A33930</span>
+    <span class="kw">let</span> scripts = <span class="fn">get_triggered_scripts</span>(ctx);
+
+    <span class="kw">for</span> script <span class="kw">in</span> scripts {
+        <span class="kw">let</span> L = <span class="fn">luaL_newstate</span>();
+
+        <span class="cmt">// Register panic handler ("LuaRunnerPanicsRegistryName")</span>
+        <span class="fn">set_registry</span>(L, <span class="str">"panics"</span>, panic_handler);
+
+        <span class="cmt">// Set instruction limit ("SetLuaInstrLimit" @ 0x10B6B4D0)</span>
+        <span class="fn">set_instr_limit</span>(L, ctx.limit);
+
+        <span class="cmt">// Register 106 mp.* API functions</span>
+        <span class="fn">register_mp_api</span>(L, ctx);
+
+        <span class="cmt">// Load MpCommon ("MpCommonLua" @ 0x10B6E2CC)</span>
+        <span class="fn">load_mpcommon</span>(L);
+
+        <span class="cmt">// Execute script</span>
+        <span class="kw">match</span> <span class="fn">lua_pcall</span>(L) {
+            Ok(())  =&gt; <span class="fn">collect_results</span>(L, ctx),
+            Err(e)  =&gt; <span class="fn">trace</span>(<span class="str">"Engine.Lua.ScriptError"</span>, e),
+            <span class="cmt">// @ 0x10B4B8C8</span>
+        }
+        <span class="fn">lua_close</span>(L);
+    }
+}</div>
+</div>
+</div>
+
+<!-- SLIDE 10: Output Flow -->
+<div class="slide" data-slide="10">
+<div class="slide-inner center-col">
+  <h2 class="glow-green mb-1">Stage 10 Outputs</h2>
+  <p class="desc mb-2">What Lua scripts produce and where it flows next</p>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;width:100%;max-width:1200px">
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--cyan);margin-bottom:8px;font-size:0.95rem">Attributes</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">mp.setattribute()</p>
+      <div class="mono mt-1" style="font-size:0.65rem;color:var(--fg3)">Stage 11 AAGGREGATOR</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--green);margin-bottom:8px;font-size:0.95rem">Detections</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">mp.fire()</p>
+      <div class="mono mt-1" style="font-size:0.65rem;color:var(--fg3)">Stage 13 Verdict</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,145,0,0.3);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.3s" class="stat-card">
+      <h3 style="color:var(--orange);margin-bottom:8px;font-size:0.95rem">Lowfi Markers</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">mp.setlowfi()</p>
+      <div class="mono mt-1" style="font-size:0.65rem;color:var(--fg3)">Stage 12 MAPS Cloud</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);border-radius:12px;padding:20px;text-align:center;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.4s" class="stat-card">
+      <h3 style="color:var(--purple);margin-bottom:8px;font-size:0.95rem">VFOs</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">mp.createvfo()</p>
+      <div class="mono mt-1" style="font-size:0.65rem;color:var(--fg3)">Recursive Stage 2-13</div>
+    </div>
+  </div>
+  <div class="pipeline-track mt-3" style="max-width:1000px">
+    <div class="pipeline-dot"></div>
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+      <div class="flow-node" style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.5s;margin:3px;color:var(--yellow)">Stage 9 BRUTE</div>
+      <span class="flow-arrow" style="transition-delay:0.5s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.15);border:2px solid rgba(0,229,255,0.5);font-size:0.7rem;padding:6px 14px;transition-delay:0.55s;margin:3px;color:var(--cyan);font-weight:700">Stage 10 LUA</div>
+      <span class="flow-arrow" style="transition-delay:0.55s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.6s;margin:3px;color:var(--purple)">Stage 11 AAGG</div>
+      <span class="flow-arrow" style="transition-delay:0.6s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.7rem;padding:6px 10px;transition-delay:0.65s;margin:3px;color:var(--cyan)">Stage 12 MAPS</div>
+      <span class="flow-arrow" style="transition-delay:0.65s">&rarr;</span>
+      <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.5);font-size:0.7rem;padding:6px 14px;transition-delay:0.7s;margin:3px;color:var(--green);font-weight:700">Verdict</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 11: Key Takeaways -->
+<div class="slide" data-slide="11">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <h2 class="glow-cyan mb-1">Key Takeaways</h2>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:18px;border-left:3px solid var(--cyan)">
+      <h3 style="color:var(--cyan);font-size:0.9rem">Programmable Detection</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">59,415 Lua scripts provide detection logic too complex for byte-pattern signatures. Scripts are delivered via VDM updates.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:18px;border-left:3px solid var(--green)">
+      <h3 style="color:var(--green);font-size:0.9rem">Sandboxed Execution</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">12 configurable resource limits prevent runaway scripts. Instruction counting via debug hooks. Custom allocator for memory control.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:18px;border-left:3px solid var(--purple)">
+      <h3 style="color:var(--purple);font-size:0.9rem">Rich API Surface</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">106 mp.* functions + 14 MpCommon.* functions cover file I/O, PE analysis, crypto, signatures, detection, and remediation.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:18px;border-left:3px solid var(--orange)">
+      <h3 style="color:var(--orange);font-size:0.9rem">Multi-Path Output</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">Scripts produce attributes (Stage 11), direct detections (Stage 13), lowfi markers (Stage 12 cloud), and VFOs (recursive scan).</p>
+    </div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">All data from reverse engineering mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

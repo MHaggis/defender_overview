@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 5: PE Emulation</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--purple),var(--cyan));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.glow-yellow{color:var(--yellow);text-shadow:0 0 30px rgba(255,215,64,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--purple);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--purple);box-shadow:0 0 12px var(--purple);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Pipeline Stage 5</p>
+  <h1 class="glow-purple">PE Emulation</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">x86/x64/ARM CPU emulator with 198 WinAPI handlers</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple" data-count="198">0</span><span class="label">WinAPI Handlers</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan" data-count="973">0</span><span class="label">Virtual DLLs</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">67</span><span class="label">FPU Exports</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">500K</span><span class="label">Instruction Limit</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">RTTI: .?AVx86_IL_emulator@@ @ 0x10C748CC &mdash; .?AVIL_emulator@@ @ 0x10C74B6C</p>
+</div>
+</div>
+
+<!-- SLIDE 2: Architecture Overview -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">Emulator Architecture</h2>
+  <p class="desc mb-2">Three CPU architectures, one unified emulation framework</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--purple)">RTTI Class Hierarchy</h3>
+      <div class="code-block" style="font-size:0.78rem"><span class="fn">IL_emulator</span> <span class="cmt">(abstract base)</span>
+    @ <span class="num">0x10C74B6C</span>
+    │
+    ├── <span class="fn">x86_IL_emulator</span>
+    │   @ <span class="num">0x10C748CC</span>
+    │   <span class="cmt">32-bit x86 + FPU + SSE</span>
+    │
+    ├── <span class="fn">x86_64_IL_emulator</span>
+    │   <span class="cmt">64-bit extension (from sig types)</span>
+    │
+    └── <span class="fn">ARM_IL_emulator</span>
+        @ <span class="num">0x10C921C8</span>
+        <span class="cmt">ARM 32-bit instructions</span></div>
+      <div class="stat-card mt-2" style="opacity:1;transform:none;border:1px solid rgba(179,136,255,0.3)">
+        <span class="num" style="font-size:0.9rem;color:var(--purple)">SSE_convert @ 0x10267CF0</span>
+        <span class="label">SSE conversion export</span>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--purple)">Supporting Classes</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="transition-delay:0.1s">
+          <span class="name" style="color:var(--cyan)">vdll_data_t</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C7C940</span>
+        </div>
+        <div class="engine-bar" style="transition-delay:0.15s">
+          <span class="name" style="color:var(--cyan)">VirtualProtectCallback</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C7B7B0</span>
+        </div>
+        <div class="engine-bar" style="transition-delay:0.2s">
+          <span class="name" style="color:var(--cyan)">PEUnpacker</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C7F6D4</span>
+        </div>
+        <div class="engine-bar" style="transition-delay:0.25s">
+          <span class="name" style="color:var(--cyan)">UnpackerContext</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C79618</span>
+        </div>
+        <div class="engine-bar" style="transition-delay:0.3s">
+          <span class="name" style="color:var(--cyan)">UnpackerData</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C852A4</span>
+        </div>
+      </div>
+      <div class="stat-card mt-2" style="transition-delay:0.35s;border:1px solid rgba(0,229,255,0.3)">
+        <span class="num glow-cyan" style="font-size:0.9rem">VirtualAllocation</span>
+        <span class="label mono" style="font-size:0.6rem">@ 0x10C7B360 (Ref_count_obj2)</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Virtual Memory Layout -->
+<div class="slide" data-slide="3">
+<div class="slide-inner center-col">
+  <h2 class="glow-cyan mb-1">Virtual Memory Layout</h2>
+  <p class="desc mb-2">Synthetic address space for emulated PE execution</p>
+  <div style="display:flex;flex-direction:column;gap:4px;width:100%;max-width:800px">
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.05s">
+      <span class="name mono" style="color:var(--green);font-size:0.85rem">0x00010000</span>
+      <span class="detail"><strong>Stack</strong> &mdash; ESP initialized, grows downward</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+      <span class="name mono" style="color:var(--cyan);font-size:0.85rem">0x00020000</span>
+      <span class="detail"><strong>TEB / PEB</strong> &mdash; Thread &amp; Process Environment Blocks (synthetic)</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.15s">
+      <span class="name mono" style="color:var(--purple);font-size:0.85rem">0x00030000</span>
+      <span class="detail"><strong>LDR Data</strong> &mdash; Loader structures, module linked list</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.2s">
+      <span class="name mono" style="color:var(--orange);font-size:0.85rem">0x00400000</span>
+      <span class="detail"><strong>PE Image</strong> &mdash; Scanned file mapped at ImageBase</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.25s">
+      <span class="name mono" style="color:var(--yellow);font-size:0.85rem">0x10000000</span>
+      <span class="detail"><strong>Heap</strong> &mdash; VirtualAlloc / malloc allocations</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.3s">
+      <span class="name mono" style="color:var(--cyan);font-size:0.85rem">0x70000000</span>
+      <span class="detail"><strong>VDLLs</strong> &mdash; 973 virtual DLLs (kernel32, ntdll, user32, ...)</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.35s">
+      <span class="name mono" style="color:var(--purple);font-size:0.85rem">0x7FFE0000</span>
+      <span class="detail"><strong>Trampolines</strong> &mdash; API handler dispatch stubs</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.4s">
+      <span class="name mono" style="color:var(--red);font-size:0.85rem">0xDEADBEEF</span>
+      <span class="detail"><strong>Stop Sentinel</strong> &mdash; Execution terminates at this address</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: FPU Emulation -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">FPU Emulation: 67 Exports</h2>
+  <p class="desc mb-2">Full x87 floating-point emulation via real exported functions from mpengine.dll</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--green)">Arithmetic</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="fn">FPU_fadd</span>      @ <span class="num">0x10266C50</span>  <span class="cmt">FADD</span>
+<span class="fn">FPU_fsub</span>      @ <span class="num">0x10266ED0</span>  <span class="cmt">FSUB</span>
+<span class="fn">FPU_fmul</span>      @ <span class="num">0x102670D0</span>  <span class="cmt">FMUL</span>
+<span class="fn">FPU_fdiv</span>      @ <span class="num">0x10266FD0</span>  <span class="cmt">FDIV</span>
+<span class="fn">FPU_fsqrt</span>     @ <span class="num">0x10267570</span>  <span class="cmt">FSQRT</span>
+<span class="fn">FPU_fabs</span>      @ <span class="num">0x10267340</span>  <span class="cmt">FABS</span>
+<span class="fn">FPU_fchs</span>      @ <span class="num">0x102672D0</span>  <span class="cmt">FCHS</span></div>
+      <h3 class="mt-2" style="color:var(--green)">Transcendental</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="fn">FPU_fsin</span>      @ <span class="num">0x10267650</span>  <span class="cmt">FSIN</span>
+<span class="fn">FPU_fcos</span>      @ <span class="num">0x102676C0</span>  <span class="cmt">FCOS</span>
+<span class="fn">FPU_fptan</span>     @ <span class="num">0x10267500</span>  <span class="cmt">FPTAN</span>
+<span class="fn">FPU_fpatan</span>    @ <span class="num">0x10267950</span>  <span class="cmt">FPATAN</span>
+<span class="fn">FPU_f2xm1</span>    @ <span class="num">0x10267490</span>  <span class="cmt">2^x-1</span>
+<span class="fn">FPU_fyl2x</span>    @ <span class="num">0x10267730</span>  <span class="cmt">y*log2(x)</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">Load / Store</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="fn">FPU_fld_single</span> @ <span class="num">0x10266450</span>  <span class="cmt">32-bit</span>
+<span class="fn">FPU_fld_double</span> @ <span class="num">0x102664C0</span>  <span class="cmt">64-bit</span>
+<span class="fn">FPU_fld_ext</span>    @ <span class="num">0x10266530</span>  <span class="cmt">80-bit</span>
+<span class="fn">FPU_fild_s16</span>  @ <span class="num">0x102665A0</span>  <span class="cmt">16-bit int</span>
+<span class="fn">FPU_fild_s32</span>  @ <span class="num">0x10266610</span>  <span class="cmt">32-bit int</span>
+<span class="fn">FPU_fild_s64</span>  @ <span class="num">0x10266680</span>  <span class="cmt">64-bit int</span>
+<span class="fn">FPU_fbld</span>      @ <span class="num">0x102666F0</span>  <span class="cmt">BCD load</span></div>
+      <h3 class="mt-2" style="color:var(--green)">Constants</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="fn">FPU_fld1</span>      @ <span class="num">0x102679E0</span>  <span class="cmt">1.0</span>
+<span class="fn">FPU_fldpi</span>     @ <span class="num">0x10267B30</span>  <span class="cmt">pi</span>
+<span class="fn">FPU_fldl2e</span>    @ <span class="num">0x10267AC0</span>  <span class="cmt">log2(e)</span>
+<span class="fn">FPU_fldln2</span>    @ <span class="num">0x10267C10</span>  <span class="cmt">ln(2)</span>
+<span class="fn">FPU_fldz</span>      @ <span class="num">0x10267C80</span>  <span class="cmt">0.0</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: WinAPI Emulation -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">198 Emulated WinAPI Handlers</h2>
+  <p class="desc mb-2">Intercepted API calls provide behavioral telemetry and controlled execution</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">API Handler Flow</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="cmt">Emulated code @ 0x00400000+</span>
+         │
+         │ <span class="kw">CALL</span> [IAT entry]
+         ▼
+<span class="fn">VDLL stub</span> @ <span class="num">0x70000000</span>+
+         │
+         │ <span class="kw">JMP</span> [trampoline]
+         ▼
+<span class="fn">Trampoline</span> @ <span class="num">0x7FFE0000</span>+
+         │
+         │ <span class="cmt">Host-side dispatch</span>
+         ▼
+<span class="fn">Native handler</span> in mpengine.dll
+  1. Read params from emu stack
+  2. Simulate API behavior
+  3. Record in API log
+  4. Write return to EAX
+  5. Return to emulator</div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">Selected API Strings</h3>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.1s">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">VirtualAlloc</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6B4F6</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.13s">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">VirtualProtect</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6BA2A</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.16s">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">VirtualProtectEx</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6CE14</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.19s">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">CreateFileW</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6B562</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.22s">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">CreateFileMappingW</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6B710</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.25s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">LoadLibraryA</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6B78E</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.28s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">LoadLibraryW</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6BDA8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.31s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">LoadLibraryExW</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10C6B458</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: Execution Engine -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Execution Engine</h2>
+  <p class="desc mb-2">Fetch-decode-execute loop with 500,000 instruction hard limit</p>
+  <div class="split-60-40">
+    <div>
+      <div class="code-block" style="font-size:0.75rem"><span class="kw">fn</span> <span class="fn">emulate_main_loop</span>(ctx: &amp;<span class="kw">mut</span> EmuContext) {
+    <span class="kw">let mut</span> insn_count: <span class="kw">u32</span> = <span class="num">0</span>;
+
+    <span class="kw">loop</span> {
+        <span class="kw">let</span> eip = ctx.regs.eip;
+
+        <span class="cmt">// Stop sentinel check</span>
+        <span class="kw">if</span> eip == <span class="num">0xDEADBEEF</span> { <span class="kw">break</span>; }
+
+        <span class="cmt">// Decode instruction</span>
+        <span class="kw">let</span> insn = <span class="fn">decode</span>(ctx.memory, eip);
+
+        <span class="cmt">// Instruction limit</span>
+        insn_count += <span class="num">1</span>;
+        <span class="kw">if</span> insn_count >= <span class="num">500_000</span> {
+            <span class="cmt">// "abort: execution limit met"</span>
+            <span class="cmt">//     @ 0x109334D8</span>
+            <span class="kw">break</span>;
+        }
+
+        <span class="cmt">// FPU routing</span>
+        <span class="kw">if</span> insn.type == <span class="str">DASM_OPTYPE_FPU_RM</span> {
+            <span class="cmt">// @ 0x109815DC</span>
+            <span class="fn">execute_fpu</span>(ctx, &amp;insn);
+        }
+
+        <span class="cmt">// API trampoline check</span>
+        <span class="kw">if</span> eip >= <span class="num">0x7FFE0000</span> {
+            <span class="fn">handle_api_call</span>(ctx, eip);
+        }
+
+        ctx.regs.eip = insn.next_eip;
+    }
+}</div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan)">Execution Limits</h3>
+      <div class="stat-card" style="transition-delay:0.1s;border:1px solid rgba(0,229,255,0.3)">
+        <span class="num glow-cyan">500K</span>
+        <span class="label">Max instructions per run</span>
+      </div>
+      <div class="code-block mt-2" style="font-size:0.7rem"><span class="str">"abort: execution limit met (%u instructions)"</span>
+    @ <span class="num">0x109334D8</span>
+
+<span class="str">"Infinite loop detected (more that %d instructions executed)"</span>
+    @ <span class="num">0x10983320</span></div>
+      <h3 class="mt-2" style="color:var(--cyan)">Re-emulation</h3>
+      <div class="code-block" style="font-size:0.7rem"><span class="str">"reemulate"</span>    @ <span class="num">0x10981878</span>
+<span class="str">"MpReemulate"</span> @ <span class="num">0x10B76A08</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: Behavioral Recording -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-yellow mb-1">Behavioral Recording</h2>
+  <p class="desc mb-2">FOP, TUNNEL, and THREAD signatures capture runtime behavior patterns</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+    <div style="background:var(--bg3);border:1px solid rgba(255,215,64,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--yellow);margin-bottom:8px">FOP Signatures</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">First Opcode Profile &mdash; captures first N unique opcode sequences from entry point. Architecture-independent behavioral fingerprint.</p>
+      <div class="code-block mt-2" style="font-size:0.65rem;padding:8px"><span class="str">SIGNATURE_TYPE_FOP</span>       @ <span class="num">0x10986C44</span>
+<span class="str">SIGNATURE_TYPE_FOP64</span>     @ <span class="num">0x109871BC</span>
+<span class="str">SIGNATURE_TYPE_FOPEX</span>     @ <span class="num">0x10986514</span>
+<span class="str">SIGNATURE_TYPE_FOPEX64</span>   @ <span class="num">0x10986C70</span>
+<span class="str">SIGNATURE_TYPE_VBFOP</span>     @ <span class="num">0x10986074</span>
+<span class="str">SIGNATURE_TYPE_MSILFOP</span>   @ <span class="num">0x10986BCC</span></div>
+      <div class="stat-card mt-1" style="opacity:1;transform:none;padding:8px">
+        <span class="num glow-yellow" style="font-size:1rem" data-count="4601">0</span>
+        <span class="label">FOP Rules in VDM</span>
+      </div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--purple);margin-bottom:8px">TUNNEL Signatures</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">Detect code-flow patterns between entry point and first API call. The "tunnel" is the decryption/unpacking stub.</p>
+      <div class="code-block mt-2" style="font-size:0.65rem;padding:8px"><span class="str">SIGNATURE_TYPE_TUNNEL_X86</span>
+    @ <span class="num">0x109860A4</span>
+<span class="str">SIGNATURE_TYPE_TUNNEL_X64</span>
+    @ <span class="num">0x10986344</span>
+<span class="str">SIGNATURE_TYPE_TUNNEL_ARM</span>
+    @ <span class="num">0x10986460</span>
+<span class="str">SIGNATURE_TYPE_TUNNEL_ARM64</span>
+    @ <span class="num">0x1098713C</span></div>
+      <div class="stat-card mt-1" style="opacity:1;transform:none;padding:8px">
+        <span class="num glow-purple" style="font-size:1rem">4</span>
+        <span class="label">Architecture Variants</span>
+      </div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.3s" class="stat-card">
+      <h3 style="color:var(--cyan);margin-bottom:8px">THREAD Signatures</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);line-height:1.5">Detect multi-threaded behavior patterns during emulation. Thread creation and synchronization profiles.</p>
+      <div class="code-block mt-2" style="font-size:0.65rem;padding:8px"><span class="str">SIGNATURE_TYPE_THREAD_X86</span>
+    @ <span class="num">0x109860F4</span>
+<span class="str">SIGNATURE_TYPE_THREAD_X64</span>
+    @ <span class="num">0x1098703C</span>
+<span class="str">SIGNATURE_TYPE_THREAD_ARM</span>
+    @ <span class="num">0x10986B00</span>
+<span class="str">SIGNATURE_TYPE_THREAD_ARM64</span>
+    @ <span class="num">0x10986B58</span></div>
+      <div class="stat-card mt-1" style="opacity:1;transform:none;padding:8px">
+        <span class="num glow-cyan" style="font-size:1rem">4</span>
+        <span class="label">Architecture Variants</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: VDLL System -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Virtual DLL System</h2>
+  <p class="desc mb-2">973 VDLLs mapped at 0x70000000+ provide realistic API stubs for import resolution</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--cyan)">Import Resolution Flow</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="cmt">// PE imports "kernel32!VirtualAlloc"</span>
+
+<span class="cmt">1.</span> Find <span class="fn">kernel32.dll</span> in 973 VDLL list
+<span class="cmt">2.</span> Resolve <span class="fn">VirtualAlloc</span> from VDLL exports
+<span class="cmt">3.</span> Patch IAT entry &rarr; VDLL stub address
+<span class="cmt">4.</span> VDLL stub jumps to trampoline
+<span class="cmt">5.</span> Trampoline dispatches to native handler
+
+<span class="cmt">// Symbolic info for resolution:</span>
+<span class="str">"SIGNATURE_TYPE_VDLL_SYMINFO"</span>
+    @ <span class="num">0x1098614C</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--cyan)">VDLL Control Strings</h3>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">isvdllbase</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x109819CC</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.15s">
+          <span class="name" style="color:var(--cyan);font-size:0.8rem">isvdllimage</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x109819D8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.2s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">reads_vdll_code</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10985924</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.25s">
+          <span class="name" style="color:var(--green);font-size:0.8rem">dynmem_reads_vdll_code</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10984F48</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.3s">
+          <span class="name" style="color:var(--purple);font-size:0.8rem">verbose_vdll_reads</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x10985DE8</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.35s">
+          <span class="name" style="color:var(--orange);font-size:0.8rem">NDAT_VFS_LINK</span>
+          <span class="detail mono" style="font-size:0.65rem">@ 0x109811F8</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: Emulation Control -->
+<div class="slide" data-slide="9">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Emulation Control</h2>
+  <p class="desc mb-2">Attributes and NID tokens that control emulation behavior</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">Scan Attributes</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="str">"force_unpacking"</span>
+    @ <span class="num">0x109852D4</span>
+<span class="str">"disable_static_unpacking"</span>
+    @ <span class="num">0x10984AE8</span>
+<span class="str">"dt_continue_after_unpacking"</span>
+    @ <span class="num">0x10984D1C</span>
+<span class="str">"dt_continue_after_unpacking_damaged"</span>
+    @ <span class="num">0x10984D38</span>
+<span class="str">"pea_force_unpacking"</span>
+    @ <span class="num">0x10A11570</span>
+<span class="str">"pea_disable_static_unpacking"</span>
+    @ <span class="num">0x10A110B8</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">NID Control Tokens</h3>
+      <div class="code-block" style="font-size:0.68rem"><span class="str">"NID_DT_CONTINUE_AFTER_UNPACKING"</span>
+    @ <span class="num">0x10980A7C</span>
+<span class="str">"NID_DT_CONTINUE_AFTER_DAMAGED_UNPACKING"</span>
+    @ <span class="num">0x10980B5C</span>
+<span class="str">"NID_DT_DISABLE_STATIC_UNPACKING"</span>
+    @ <span class="num">0x10980C30</span>
+<span class="str">"NID_DT_ENABLE_STATIC_UNPACKING"</span>
+    @ <span class="num">0x10980C50</span>
+<span class="str">"NID_DT_SKIP_UNIMPLEMENTED_OPCODES"</span>
+    @ <span class="num">0x10980A9C</span>
+<span class="str">"NID_DT_DISABLE_MICROCODE"</span>
+    @ <span class="num">0x10980C8C</span>
+<span class="str">"NID_DT_ENABLE_MICROCODE"</span>
+    @ <span class="num">0x10980CA8</span>
+<span class="str">"NID_DISABLE_THREAD_API_LIMITS"</span>
+    @ <span class="num">0x10980CDC</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 10: VFS Dropped Files -->
+<div class="slide" data-slide="10">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">VFS: Virtual File System</h2>
+  <p class="desc mb-2">Files written by emulated code are captured and scanned in Stage 6</p>
+  <div class="split-60-40">
+    <div>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">// Emulated malware calls:</span>
+<span class="fn">CreateFileW</span>(<span class="str">L"C:\\payload.exe"</span>, ...);
+<span class="fn">WriteFile</span>(hFile, decrypted_data, size, ...);
+<span class="fn">CloseHandle</span>(hFile);
+
+<span class="cmt">// Emulator intercepts and routes to VFS:</span>
+<span class="cmt">//   Data stored in virtual filesystem</span>
+<span class="cmt">//   Filename tracked for context</span>
+
+<span class="cmt">// After emulation completes (Stage 6):</span>
+<span class="kw">for</span> vfs_entry <span class="kw">in</span> emu_ctx.vfs.entries() {
+    <span class="cmt">// "(VFS:%ls#%zd)" @ 0x10B87920</span>
+    <span class="fn">recursive_scan</span>(vfs_entry.data, depth + <span class="num">1</span>);
+}
+
+<span class="cmt">// VFS string references:</span>
+<span class="str">"NDAT_VFS_LINK"</span>     @ <span class="num">0x109811F8</span>
+<span class="str">"VFSParams"</span>         @ <span class="num">0x10B76888</span>
+<span class="str">"(VFS:%ls#%zd)"</span>     @ <span class="num">0x10B87920</span>
+<span class="str">"(VFS:...%ls#%zd)"</span>  @ <span class="num">0x10B8790C</span>
+<span class="str">"(VFS:#%zd)"</span>        @ <span class="num">0x10B87900</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">Why VFS Matters</h3>
+      <p class="desc" style="font-size:0.85rem">Many malware samples are <strong>droppers</strong> &mdash; their only purpose is to decrypt and write the real payload to disk. The VFS captures these dropped files before they touch the real filesystem.</p>
+      <div class="stat-card mt-2" style="transition-delay:0.2s;border:1px solid rgba(57,255,20,0.3)">
+        <span class="num glow-green" style="font-size:1rem">Stage 6</span>
+        <span class="label">Unpacked Content scans VFS drops</span>
+      </div>
+      <div class="stat-card mt-1" style="transition-delay:0.3s;border:1px solid rgba(255,82,82,0.3)">
+        <span class="num" style="font-size:0.85rem;color:var(--red)">disable_dropper_rescan</span>
+        <span class="label">@ 0x10984A90 &mdash; can skip VFS scan</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 11: Summary -->
+<div class="slide" data-slide="11">
+<div class="slide-inner center-col" style="justify-content:center">
+  <h2 class="glow-purple mb-2">Stage 5 Summary</h2>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.05s"><span class="num glow-purple" data-count="198">0</span><span class="label">WinAPI Handlers</span></div>
+    <div class="stat-card" style="transition-delay:0.1s"><span class="num glow-cyan" data-count="973">0</span><span class="label">Virtual DLLs</span></div>
+    <div class="stat-card" style="transition-delay:0.15s"><span class="num glow-green">67</span><span class="label">FPU Exports</span></div>
+    <div class="stat-card" style="transition-delay:0.2s"><span class="num glow-orange">500K</span><span class="label">Instruction Limit</span></div>
+    <div class="stat-card" style="transition-delay:0.25s"><span class="num glow-yellow" data-count="4601">0</span><span class="label">FOP Rules</span></div>
+    <div class="stat-card" style="transition-delay:0.3s"><span class="num glow-cyan">3</span><span class="label">CPU Architectures</span></div>
+    <div class="stat-card" style="transition-delay:0.35s"><span class="num glow-green" data-count="302">0</span><span class="label">PE Attributes</span></div>
+    <div class="stat-card" style="transition-delay:0.4s"><span class="num glow-purple">8</span><span class="label">NID Control Tokens</span></div>
+  </div>
+  <p class="mt-3" style="color:var(--fg3);font-size:0.85rem">All data from reverse engineering <span class="mono">mpengine.dll</span> v1.1.24120.x</p>
+  <div style="display:flex;gap:24px;margin-top:24px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;border:1px solid rgba(255,145,0,0.3);min-width:160px">
+      <span style="font-size:0.8rem;color:var(--orange)">&larr; Stage 4</span>
+      <span class="label">Attribute Collection</span>
+    </div>
+    <div class="stat-card" style="opacity:1;transform:none;border:1px solid rgba(57,255,20,0.3);min-width:160px">
+      <span style="font-size:0.8rem;color:var(--green)">Stage 6 &rarr;</span>
+      <span class="label">Unpacked Content</span>
+    </div>
+  </div>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

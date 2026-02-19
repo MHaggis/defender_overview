@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 12 — MAPS Cloud Lookup</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--purple));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Pipeline Stage 12</p>
+  <h1 class="glow-cyan">MAPS Cloud Lookup</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">Microsoft Active Protection Service &mdash; cloud-delivered detection</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:160px"><span class="num glow-cyan" style="font-size:1rem">fastpath.wdcp</span><span class="label">Cloud Endpoint</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">Bond</span><span class="label">Serialization</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple">4</span><span class="label">FASTPATH Sig Types</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange" data-count="20">0</span><span class="label">Telemetry Fields</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">fastpath.wdcp.microsoft.com @ 0x10A09EC0 &mdash; BondSerializer @ 0x109C80E0</p>
+</div>
+</div>
+
+<!-- SLIDE 2: The Cloud Pipeline -->
+<div class="slide" data-slide="2">
+<div class="slide-inner center-col">
+  <h2 class="glow-green mb-1">Cloud Pipeline Flow</h2>
+  <p class="desc mb-2">Lowfi match triggers report generation, Bond serialization, and HTTPS POST</p>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;max-width:700px">
+    <div class="flow-node" style="background:rgba(255,145,0,0.15);border:2px solid rgba(255,145,0,0.4);transition-delay:0.1s;padding:14px 28px;color:var(--orange);width:85%">Lowfi Detection from Stages 3-11<br><span style="font-size:0.6rem;color:var(--fg3)">"lowfi" @ 0x109C60D0 &mdash; not confident enough for local verdict</span></div>
+    <span class="flow-arrow" style="transition-delay:0.15s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);transition-delay:0.2s;padding:14px 28px;color:var(--cyan);width:85%">Build SpynetReport<br><span style="font-size:0.6rem;color:var(--fg3)">"SpynetReport" @ 0x109C9E00 &mdash; hashes, metadata, attributes, certs</span></div>
+    <span class="flow-arrow" style="transition-delay:0.25s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);transition-delay:0.3s;padding:14px 28px;color:var(--purple);width:85%">Bond CompactBinaryV1 Serialize<br><span style="font-size:0.6rem;color:var(--fg3)">CompactBinaryV1Serializer @ 0x10C823C4</span></div>
+    <span class="flow-arrow" style="transition-delay:0.35s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);transition-delay:0.4s;padding:14px 28px;color:var(--green);width:85%">HTTPS POST to MAPS endpoint (fastpath.wdcp.microsoft.com in this build)<br><span style="font-size:0.6rem;color:var(--fg3)">@ 0x10A09EC0 &mdash; via MpCommu.dll transport</span></div>
+    <span class="flow-arrow" style="transition-delay:0.45s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(0,229,255,0.15);border:2px solid rgba(0,229,255,0.5);transition-delay:0.5s;padding:14px 28px;color:var(--cyan);width:85%;font-weight:700">Parse FASTPATH Response: SDN / TDN / DATA<br><span style="font-size:0.6rem;color:var(--fg3);font-weight:400">Cloud delivers real-time signatures</span></div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: SpynetReport Contents -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">SpynetReport Contents</h2>
+  <p class="desc mb-2">What gets sent to the cloud: file metadata, hashes, detection info, and scan context</p>
+  <div class="split">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+        <span class="name" style="color:var(--cyan)">File Hashes</span>
+        <span class="detail">SHA-256, SHA-1, MD5 of scanned content</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s">
+        <span class="name" style="color:var(--green)">File Metadata</span>
+        <span class="detail">Size, path, content type, creation time</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.2s">
+        <span class="name" style="color:var(--purple)">Certificate Chain</span>
+        <span class="detail">Digital signature and publisher info</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s">
+        <span class="name" style="color:var(--orange)">Lowfi Detection</span>
+        <span class="detail">Detection name, threat ID, sig sequence</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.3s">
+        <span class="name" style="color:var(--yellow)">Scan Attributes</span>
+        <span class="detail">All attributes from Stages 3-11</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--pink);transition-delay:0.35s">
+        <span class="name" style="color:var(--pink)">Machine Context</span>
+        <span class="detail">Machine GUID, OS version, SpynetReportGuid</span>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--purple)">Bond Data Classes</h3>
+      <div class="code-block" style="font-size:0.72rem"><span class="fn">Bond_SpynetReport</span>
+  @ <span class="num">0x10C831AC</span>
+
+<span class="fn">Bond_SignatureInfo</span>
+  @ <span class="num">0x10C8240C</span>
+
+<span class="fn">Bond_SignatureMatch</span>
+  @ <span class="num">0x10C824AC</span>
+
+<span class="fn">Bond_CertificateResult</span>
+  @ <span class="num">0x10C824D0</span>
+
+<span class="fn">Bond_SampleRequest</span>
+  @ <span class="num">0x10C824F8</span>
+
+<span class="fn">Bond_SpynetReportResponse</span>
+  @ <span class="num">0x10C8253C</span>
+
+<span class="fn">Bond_UrlResponse</span>
+  @ <span class="num">0x10C8251C</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: FASTPATH Signature Types -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">FASTPATH Response Signatures</h2>
+  <p class="desc mb-2">The cloud delivers real-time signatures that upgrade or drop local detections</p>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--cyan);margin-bottom:8px">FASTPATH_SDN</h3>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-bottom:8px">SIGNATURE_TYPE_FASTPATH_SDN @ 0x109869AC</p>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5"><strong>Signature Delivery Notification</strong> &mdash; cloud delivers a detection name to apply. Upgrades lowfi to full detection.</p>
+      <div class="code-block mt-1" style="font-size:0.65rem;padding:8px"><span class="str">"Issuing SDN query for %ls (%ls)"</span>
+@ <span class="num">0x10A53D68</span></div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(57,255,20,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.15s" class="stat-card">
+      <h3 style="color:var(--green);margin-bottom:8px">FASTPATH_SDN_EX</h3>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-bottom:8px">SIGNATURE_TYPE_FASTPATH_SDN_EX @ 0x10986110</p>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5"><strong>Extended SDN</strong> &mdash; includes additional metadata beyond detection name (confidence, context).</p>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,145,0,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--orange);margin-bottom:8px">FASTPATH_TDN</h3>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-bottom:8px">SIGNATURE_TYPE_FASTPATH_TDN @ 0x1098647C</p>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5"><strong>Threat Delivery Notification</strong> &mdash; cloud delivers threat identity. Can match or DROP local detections.</p>
+      <div class="code-block mt-1" style="font-size:0.65rem;padding:8px"><span class="str">"SDN/TDN matched, dropped detection"</span>
+@ <span class="num">0x10A53EB0</span></div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.25s" class="stat-card">
+      <h3 style="color:var(--purple);margin-bottom:8px">FASTPATH_DATA</h3>
+      <p class="mono" style="font-size:0.65rem;color:var(--fg3);margin-bottom:8px">SIGNATURE_TYPE_FASTPATH_DATA @ 0x1098691C</p>
+      <p style="font-size:0.8rem;color:var(--fg2);line-height:1.5"><strong>Binary Signature Data</strong> &mdash; cloud delivers entire signature rules for local matching. Real-time sig delivery.</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: Latency Telemetry -->
+<div class="slide" data-slide="5">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Latency Telemetry</h2>
+  <p class="desc mb-2">20+ telemetry fields track every phase of the cloud request lifecycle</p>
+  <div class="split">
+    <div>
+      <div class="pipeline-track" style="padding:16px">
+        <div class="pipeline-dot" style="background:var(--green);box-shadow:0 0 12px var(--green)"></div>
+        <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;position:relative;z-index:1">
+          <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.1s;margin:2px;color:var(--green)">Generate</div>
+          <span class="flow-arrow" style="transition-delay:0.1s;font-size:0.9em">&rarr;</span>
+          <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.15s;margin:2px;color:var(--cyan)">DNS</div>
+          <span class="flow-arrow" style="transition-delay:0.15s;font-size:0.9em">&rarr;</span>
+          <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.2s;margin:2px;color:var(--purple)">Connect</div>
+          <span class="flow-arrow" style="transition-delay:0.2s;font-size:0.9em">&rarr;</span>
+          <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.25s;margin:2px;color:var(--orange)">Send</div>
+          <span class="flow-arrow" style="transition-delay:0.25s;font-size:0.9em">&rarr;</span>
+          <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.3s;margin:2px;color:var(--green)">Receive</div>
+          <span class="flow-arrow" style="transition-delay:0.3s;font-size:0.9em">&rarr;</span>
+          <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);font-size:0.65rem;padding:5px 8px;transition-delay:0.35s;margin:2px;color:var(--cyan)">Parse</div>
+        </div>
+      </div>
+    </div>
+    <div class="code-block" style="font-size:0.68rem"><span class="cmt">// MAPS latency telemetry fields</span>
+<span class="fn">MAPSClientLatency</span>        @ <span class="num">0x109D1D4C</span>
+<span class="fn">MAPSGenerateLatency</span>      @ <span class="num">0x109D1D70</span>
+<span class="fn">MAPSSendLatency</span>          @ <span class="num">0x109D1D98</span>
+<span class="fn">MAPSParseLatency</span>         @ <span class="num">0x109D1DB8</span>
+<span class="fn">MAPSHresult</span>              @ <span class="num">0x109D1DDC</span>
+<span class="fn">MAPSHttpStatus</span>           @ <span class="num">0x109D1DF4</span>
+<span class="fn">MAPSCreateConnectionTime</span> @ <span class="num">0x109D1E34</span>
+<span class="fn">MAPSSendRequestTime</span>      @ <span class="num">0x109D1E68</span>
+<span class="fn">MAPSReceiveResponseTime</span>  @ <span class="num">0x109D1EE4</span>
+<span class="fn">MAPSOnResolvingNameTick</span>  @ <span class="num">0x109D1F3C</span>
+<span class="fn">MAPSOnConnectedTick</span>      @ <span class="num">0x109D1FC8</span>
+<span class="fn">MAPSOnFirstSendingTick</span>   @ <span class="num">0x109D1FF0</span>
+<span class="fn">MAPSOnFirstReceivingTick</span> @ <span class="num">0x109D2020</span>
+
+<span class="fn">LastMAPSSuccessTime</span>      @ <span class="num">0x109D24C0</span>
+<span class="fn">LastMAPSFailureTime</span>      @ <span class="num">0x109D24E8</span></div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: SpyNet Configuration -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">SpyNet Configuration</h2>
+  <p class="desc mb-2">MAPS behavior controlled by SpyNet reporting level and registry settings</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--green)">Reporting Levels</h3>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.1s">
+          <span class="idx">0</span>
+          <span class="name" style="color:var(--red)">MAPS Off</span>
+          <span class="detail">"MAPSOff" @ 0x10A08980 &mdash; No cloud queries</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.15s">
+          <span class="idx">1</span>
+          <span class="name" style="color:var(--yellow)">Basic</span>
+          <span class="detail">Minimal metadata for lowfi lookups</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.2s">
+          <span class="idx">2</span>
+          <span class="name" style="color:var(--green)">Advanced</span>
+          <span class="detail">Full metadata + file samples when requested</span>
+        </div>
+      </div>
+      <div class="code-block mt-2" style="font-size:0.7rem"><span class="cmt">// Registry paths</span>
+<span class="str">SOFTWARE\Microsoft\Windows Defender\Spynet</span>
+  @ <span class="num">0x109C6D28</span>
+<span class="str">SOFTWARE\Microsoft\Microsoft Antimalware\Spynet</span>
+  @ <span class="num">0x109C6CC8</span></div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">Configuration Parameters</h3>
+      <div class="code-block" style="font-size:0.7rem"><span class="fn">MpMaxSpynetReports</span>
+  @ <span class="num">0x10A4EDF4</span>
+  <span class="cmt">Max concurrent reports in-flight</span>
+
+<span class="fn">MpDisableSyncSpynetCheck</span>
+  @ <span class="num">0x10A0875C</span>
+  <span class="cmt">Disable synchronous check</span>
+
+<span class="fn">fastpathcachesize</span>
+  @ <span class="num">0x109F2A34</span>
+  <span class="cmt">FASTPATH response cache size</span>
+
+<span class="fn">MP_FASTPATH_LOWFI_LIFETIME</span>
+  @ <span class="num">0x1098C998</span>
+  <span class="cmt">Cache TTL for lowfi responses</span>
+
+<span class="fn">SpynetBondKillbit</span>
+  @ <span class="num">0x10A4EF70</span>
+  <span class="cmt">Bond killbit flag</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: Network Architecture -->
+<div class="slide" data-slide="7">
+<div class="slide-inner center-col">
+  <h2 class="glow-purple mb-1">Network Architecture</h2>
+  <p class="desc mb-2">mpengine.dll builds the report; MpCommu.dll handles HTTP transport</p>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:16px;width:100%;max-width:800px">
+    <div class="flow-node" style="background:rgba(0,229,255,0.15);border:2px solid rgba(0,229,255,0.4);transition-delay:0.1s;padding:16px 28px;color:var(--cyan);width:85%">
+      <strong>mpengine.dll</strong><br>
+      <span style="font-size:0.65rem;color:var(--fg2)">Build SpynetReport &rarr; Bond serialize &rarr; CompactBinaryV1 blob</span>
+    </div>
+    <span class="flow-arrow" style="transition-delay:0.15s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.4);transition-delay:0.2s;padding:16px 28px;color:var(--green);width:85%">
+      <strong>MpCommu.dll</strong><br>
+      <span style="font-size:0.65rem;color:var(--fg2)">TLS/HTTPS &rarr; Certificate pinning &rarr; Connection pooling &rarr; Retry logic</span>
+    </div>
+    <span class="flow-arrow" style="transition-delay:0.25s;font-size:1.5em">&darr;</span>
+    <div class="flow-node" style="background:rgba(179,136,255,0.15);border:2px solid rgba(179,136,255,0.4);transition-delay:0.3s;padding:16px 28px;color:var(--purple);width:85%">
+      <strong>fastpath.wdcp.microsoft.com</strong><br>
+      <span style="font-size:0.65rem;color:var(--fg2)">ML models + reputation + prevalence + dynamic sandboxing correlation</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px;width:100%;max-width:700px">
+    <div class="stat-card" style="transition-delay:0.35s">
+      <span class="num glow-cyan" style="font-size:0.85rem">Production</span>
+      <span class="label" style="font-size:0.6rem">fastpath.wdcp.microsoft.com<br>@ 0x10A09EC0</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.4s">
+      <span class="num glow-green" style="font-size:0.85rem">PPE</span>
+      <span class="label" style="font-size:0.6rem">fastpath.wdcpppe.microsoft.com<br>@ 0x10A09EF8</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.45s">
+      <span class="num glow-purple" style="font-size:0.85rem">PPE Alt</span>
+      <span class="label" style="font-size:0.6rem">fastpath.wdcpppe.microsoft-ppe.com<br>@ 0x10A09E48</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: Error Handling -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Error Handling &amp; Resilience</h2>
+  <p class="desc mb-2">Graceful degradation when the cloud is unreachable</p>
+  <div class="split">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.1s">
+        <span class="name" style="color:var(--red)">Network Failure</span>
+        <span class="detail">Record LastMAPSFailureTime. Keep lowfi as-is. Do NOT upgrade to full.</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.15s">
+        <span class="name" style="color:var(--orange)">Deser Failure</span>
+        <span class="detail">"BondDeserializationFailure" @ 0x109D9A70. Drop response, keep lowfi.</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.2s">
+        <span class="name" style="color:var(--yellow)">MAPS Disabled</span>
+        <span class="detail">"MAPSOff" @ 0x10A08980. Skip entire Stage 12.</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.25s">
+        <span class="name" style="color:var(--green)">Cache Hit</span>
+        <span class="detail">"Defender_Engine_CachedSDN" @ 0x10A53BA8. Apply cached response.</span>
+      </div>
+      <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.3s">
+        <span class="name" style="color:var(--cyan)">Success</span>
+        <span class="detail">Record LastMAPSSuccessTime @ 0x109D24C0. Apply FASTPATH sigs.</span>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">Detection State Machine</h3>
+      <div class="code-block" style="font-size:0.7rem"><span class="cmt">// Detection upgrade/suppression strings</span>
+
+<span class="str">"BM detection upgraded to
+ threat detection."</span>
+  @ <span class="num">0x10A66498</span>
+
+<span class="str">"BM detection NOT upgraded
+ to threat detection."</span>
+  @ <span class="num">0x10A664F0</span>
+
+<span class="str">"BM detection suppressed
+ due to friendlyness." [sic]</span>
+  @ <span class="num">0x10A666C0</span>
+
+<span class="str">"SDN recieved [sic], rescanning
+ impacted resources"</span>
+  @ <span class="num">0x10A53E40</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: Key Takeaways -->
+<div class="slide" data-slide="9">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <h2 class="glow-cyan mb-1">Key Takeaways</h2>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:18px;border-left:3px solid var(--cyan)">
+      <h3 style="color:var(--cyan);font-size:0.9rem">Cloud-Delivered Protection</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">Lowfi detections trigger cloud queries. ML models, reputation data, and prevalence analysis enhance local decisions.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:18px;border-left:3px solid var(--green)">
+      <h3 style="color:var(--green);font-size:0.9rem">Bond Protocol</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">Microsoft Bond CompactBinaryV1 serialization. 13+ RTTI classes for structured report/response data.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:18px;border-left:3px solid var(--purple)">
+      <h3 style="color:var(--purple);font-size:0.9rem">FASTPATH Signatures</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">4 types: SDN (detection name), SDN_EX (extended), TDN (threat identity), DATA (binary sigs). Real-time delivery.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:18px;border-left:3px solid var(--orange)">
+      <h3 style="color:var(--orange);font-size:0.9rem">Graceful Degradation</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">Network failures do not cause false positives. Cached responses enable offline cloud protection. 20+ latency metrics.</p>
+    </div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">All data from reverse engineering mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

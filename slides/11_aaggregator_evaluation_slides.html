@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 11 — AAGGREGATOR Boolean Expression Evaluation</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--purple));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--purple);box-shadow:0 0 12px var(--purple);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Pipeline Stage 11</p>
+  <h1 class="glow-purple">AAGGREGATOR Evaluation</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">Boolean expression evaluation over all collected attributes</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:140px"><span class="num glow-purple">AND &amp; OR</span><span class="label">Boolean Operators</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:140px"><span class="num glow-cyan">! Prefix</span><span class="label">Infrastructure Markers</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:140px"><span class="num glow-green">10+</span><span class="label">Attribute Sources</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:140px"><span class="num glow-orange">O(1)</span><span class="label">Attr Lookup</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">SIGNATURE_TYPE_AAGGREGATOR @ 0x10986B3C &mdash; SIGNATURE_TYPE_AAGGREGATOREX @ 0x10986E28</p>
+</div>
+</div>
+
+<!-- SLIDE 2: The Concept -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">The Big Idea</h2>
+  <p class="desc mb-2">Combine weak signals from ALL prior stages into strong composite detections</p>
+  <div class="split">
+    <div>
+      <p class="desc">Individual signals are often insufficient: a file with suspicious imports is not necessarily malicious. High entropy alone is not proof of packing. An unsigned binary is not inherently dangerous.</p>
+      <p class="desc mt-2">But when these signals <strong>converge</strong> &mdash; suspicious imports AND high entropy AND unsigned AND small file size &mdash; the combination becomes a reliable detection.</p>
+      <p class="desc mt-2">The AAGGREGATOR evaluates <strong>boolean expressions</strong> over the complete set of attributes collected across Stages 3-10, firing composite detections when multiple conditions align.</p>
+    </div>
+    <div>
+      <div class="code-block" style="font-size:0.78rem"><span class="cmt">// Example AAGGREGATOR expression</span>
+
+<span class="cmt">// Individual signals (weak):</span>
+<span class="str">!SuspiciousImports</span>    <span class="cmt">// = infra marker</span>
+<span class="str">!HighEntropy</span>           <span class="cmt">// = infra marker</span>
+<span class="str">!NotSigned</span>             <span class="cmt">// = infra marker</span>
+<span class="str">!SmallPEFile</span>           <span class="cmt">// = infra marker</span>
+
+<span class="cmt">// Combined expression (strong):</span>
+<span class="fn">!SuspiciousImports</span> <span class="kw">&amp;</span>
+<span class="fn">!HighEntropy</span> <span class="kw">&amp;</span>
+<span class="fn">!NotSigned</span> <span class="kw">&amp;</span>
+<span class="fn">!SmallPEFile</span>
+  <span class="kw">&rarr;</span> <span class="str">Trojan:Win32/Injector.Gen!MTB</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Expression Language -->
+<div class="slide" data-slide="3">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Expression Language</h2>
+  <p class="desc mb-2">Minimal but powerful: AND, OR, NOT, and parentheses over attribute names</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--green)">Operators</h3>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:12px">
+        <div class="stat-card" style="transition-delay:0.1s">
+          <span class="num glow-green" style="font-size:1.5rem">&amp;</span>
+          <span class="label">AND (precedence 2)</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.15s">
+          <span class="num glow-cyan" style="font-size:1.5rem">|</span>
+          <span class="label">OR (precedence 1)</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.2s">
+          <span class="num glow-orange" style="font-size:1.5rem">!</span>
+          <span class="label">NOT / Infra prefix (3)</span>
+        </div>
+        <div class="stat-card" style="transition-delay:0.25s">
+          <span class="num glow-purple" style="font-size:1.5rem">( )</span>
+          <span class="label">Grouping</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--green)">Expression Examples</h3>
+      <div class="code-block" style="font-size:0.75rem"><span class="cmt">// Simple AND</span>
+<span class="fn">HSTR:SusImport</span> <span class="kw">&amp;</span> <span class="fn">HSTR:HighEntropy</span>
+
+<span class="cmt">// OR expression</span>
+<span class="fn">FOP:VirtualAlloc</span> <span class="kw">|</span> <span class="fn">FOP:VirtualProtect</span>
+
+<span class="cmt">// Complex nested</span>
+(<span class="fn">HSTR:PackedUPX</span> <span class="kw">|</span> <span class="fn">HSTR:PackedASPack</span>)
+  <span class="kw">&amp;</span> <span class="fn">SIGATTR:NotSigned</span>
+  <span class="kw">&amp;</span> <span class="fn">!InfraMarkerCleaner</span>
+
+<span class="cmt">// Multi-path heuristic</span>
+(<span class="fn">!PESusImports</span> <span class="kw">&amp;</span> <span class="fn">!PEHighEntropy</span>)
+  <span class="kw">|</span> (<span class="fn">!ScriptObfuscated</span> <span class="kw">&amp;</span> <span class="fn">!ScriptEval</span>)
+  <span class="kw">|</span> (<span class="fn">!DocMacro</span> <span class="kw">&amp;</span> <span class="fn">!DocAutoOpen</span>)</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: Infrastructure Markers -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Infrastructure Markers</h2>
+  <p class="desc mb-2">The <code>!</code> prefix pattern: building blocks that are never reported as final threats</p>
+  <div class="split">
+    <div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+        <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);transition-delay:0.1s;padding:12px 20px;color:var(--orange);width:85%">Stages 3-10 produce !-prefixed detections<br><span style="font-size:0.6rem;color:var(--fg3)">!SuspiciousImports, !HighEntropy, !NotSigned</span></div>
+        <span class="flow-arrow" style="transition-delay:0.15s;font-size:1.5em">&darr;</span>
+        <div class="flow-node" style="background:rgba(179,136,255,0.15);border:2px solid rgba(179,136,255,0.4);transition-delay:0.2s;padding:12px 20px;color:var(--purple);width:85%">Stage 11 AAGGREGATOR evaluates expression<br><span style="font-size:0.6rem;color:var(--fg3)">!SuspiciousImports &amp; !HighEntropy &amp; !NotSigned</span></div>
+        <span class="flow-arrow" style="transition-delay:0.25s;font-size:1.5em">&darr;</span>
+        <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.4);transition-delay:0.3s;padding:12px 20px;color:var(--green);width:85%">Fires: Trojan:Win32/Composite.A<br><span style="font-size:0.6rem;color:var(--fg3)">Real detection (no ! prefix)</span></div>
+        <span class="flow-arrow" style="transition-delay:0.35s;font-size:1.5em">&darr;</span>
+        <div class="flow-node" style="background:rgba(255,82,82,0.1);border:1px solid rgba(255,82,82,0.3);transition-delay:0.4s;padding:12px 20px;color:var(--red);width:85%">Stage 13: !-prefixed names FILTERED OUT<br><span style="font-size:0.6rem;color:var(--fg3)">Only real detections reach the user</span></div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">Why Infrastructure Markers?</h3>
+      <p class="desc" style="font-size:0.85rem">They solve a fundamental challenge: how do you build multi-factor detections without every intermediate signal being a standalone threat?</p>
+      <div class="code-block mt-2" style="font-size:0.72rem"><span class="cmt">// Each of these alone is NOT a threat:</span>
+<span class="str">!SuspiciousImports</span>  <span class="cmt">// many legit apps</span>
+<span class="str">!HighEntropy</span>         <span class="cmt">// compressed data</span>
+<span class="str">!NotSigned</span>           <span class="cmt">// most freeware</span>
+<span class="str">!SmallPEFile</span>         <span class="cmt">// plenty of tools</span>
+
+<span class="cmt">// But ALL together = reliable detection</span>
+<span class="fn">!SuspiciousImports</span> <span class="kw">&amp;</span>
+<span class="fn">!HighEntropy</span> <span class="kw">&amp;</span>
+<span class="fn">!NotSigned</span> <span class="kw">&amp;</span>
+<span class="fn">!SmallPEFile</span>
+  <span class="kw">=</span> <span class="str">Trojan:Win32/Injector.Gen</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: Attribute Sources -->
+<div class="slide" data-slide="5">
+<div class="slide-inner center-col">
+  <h2 class="glow-cyan mb-1">Attribute Sources</h2>
+  <p class="desc mb-2">The AAGGREGATOR consumes attributes from ALL prior pipeline stages</p>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;width:100%;max-width:1400px">
+    <div class="stat-card" style="transition-delay:0.05s;border-left:3px solid var(--green);text-align:left;padding:12px">
+      <span class="label" style="color:var(--green)">Stage 3: HSTR</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">HSTR:PatternName</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.1s;border-left:3px solid var(--green);text-align:left;padding:12px">
+      <span class="label" style="color:var(--green)">Stage 3: PEHSTR</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">PEHSTR:PatternName</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;border-left:3px solid var(--orange);text-align:left;padding:12px">
+      <span class="label" style="color:var(--orange)">Stage 4: SIGATTR</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">SIGATTR:AttrName</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-left:3px solid var(--purple);text-align:left;padding:12px">
+      <span class="label" style="color:var(--purple)">Stage 5: FOP</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">FOP:BehaviorName</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;border-left:3px solid var(--purple);text-align:left;padding:12px">
+      <span class="label" style="color:var(--purple)">Stage 5: TUNNEL</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">TUNNEL:ApiName</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;border-left:3px solid var(--purple);text-align:left;padding:12px">
+      <span class="label" style="color:var(--purple)">Stage 5: THREAD</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">THREAD:Observation</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.35s;border-left:3px solid var(--yellow);text-align:left;padding:12px">
+      <span class="label" style="color:var(--yellow)">Stage 9: BRUTE</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">BRUTE:PatternName</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.4s;border-left:3px solid var(--cyan);text-align:left;padding:12px">
+      <span class="label" style="color:var(--cyan)">Stage 10: Lua</span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:4px;font-family:var(--mono)">mp.setattribute()</span>
+    </div>
+  </div>
+  <div class="stat-card mt-2" style="transition-delay:0.45s;border:2px solid rgba(179,136,255,0.4);min-width:300px;max-width:600px">
+    <span class="num glow-purple" style="font-size:1rem">All attributes stored in HashSet&lt;String&gt;</span>
+    <span class="label">O(1) lookup per attribute &mdash; microsecond evaluation</span>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: AAGGREGATOR vs AAGGREGATOREX -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-purple mb-1">AAGGREGATOR vs AAGGREGATOREX</h2>
+  <p class="desc mb-2">Two signature types: standard boolean evaluation and extended capabilities</p>
+  <div class="split">
+    <div style="background:var(--bg3);border:1px solid rgba(179,136,255,0.3);border-radius:12px;padding:24px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--purple);margin-bottom:12px">SIGNATURE_TYPE_AAGGREGATOR</h3>
+      <p class="mono" style="font-size:0.7rem;color:var(--fg3);margin-bottom:12px">@ 0x10986B3C</p>
+      <div class="code-block" style="font-size:0.72rem;padding:12px"><span class="cmt">// Standard boolean expression</span>
+<span class="fn">Expression</span>: <span class="str">"!A &amp; !B &amp; HSTR:X"</span>
+<span class="fn">Operators</span>:  AND, OR, NOT, ( )
+<span class="fn">Eval</span>:      <span class="kw">boolean</span> result
+<span class="fn">Output</span>:    fire or skip</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(0,229,255,0.3);border-radius:12px;padding:24px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--cyan);margin-bottom:12px">SIGNATURE_TYPE_AAGGREGATOREX</h3>
+      <p class="mono" style="font-size:0.7rem;color:var(--fg3);margin-bottom:12px">@ 0x10986E28</p>
+      <div class="code-block" style="font-size:0.72rem;padding:12px"><span class="cmt">// Extended expression capabilities</span>
+<span class="fn">Expression</span>: extended boolean
+<span class="fn">Operators</span>:  AND, OR, NOT, ( )
+<span class="fn">+ Weighted</span>: score per attribute
+<span class="fn">+ Threshold</span>: fire at score &gt;= N
+<span class="fn">+ Context</span>:  scan-context-aware</div>
+    </div>
+  </div>
+  <p class="desc mt-2" style="font-size:0.8rem;text-align:center">Both types are loaded from the VDM database and evaluated against the same attribute set. AAGGREGATOREX adds scoring and context-dependent logic.</p>
+</div>
+</div>
+
+<!-- SLIDE 7: Parser Pseudocode -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-green mb-1">Expression Parser</h2>
+  <p class="desc mb-2">Recursive descent parser with short-circuit evaluation</p>
+  <div class="code-block" style="font-size:0.75rem;max-width:1000px;margin:0 auto"><span class="cmt">// Reconstructed from decompilation</span>
+
+<span class="kw">fn</span> <span class="fn">evaluate</span>(expr: &amp;str, attrs: &amp;HashSet&lt;String&gt;) -&gt; <span class="kw">bool</span> {
+    <span class="fn">parse_or</span>(&amp;mut Parser::new(expr), attrs)
+}
+
+<span class="kw">fn</span> <span class="fn">parse_or</span>(p: &amp;mut Parser, attrs: &amp;HashSet) -&gt; <span class="kw">bool</span> {
+    <span class="kw">let mut</span> left = <span class="fn">parse_and</span>(p, attrs);
+    <span class="kw">while</span> p.peek() == <span class="str">'|'</span> {
+        p.advance();
+        left = left <span class="kw">||</span> <span class="fn">parse_and</span>(p, attrs);  <span class="cmt">// short-circuit!</span>
+    }
+    left
+}
+
+<span class="kw">fn</span> <span class="fn">parse_and</span>(p: &amp;mut Parser, attrs: &amp;HashSet) -&gt; <span class="kw">bool</span> {
+    <span class="kw">let mut</span> left = <span class="fn">parse_primary</span>(p, attrs);
+    <span class="kw">while</span> p.peek() == <span class="str">'&amp;'</span> {
+        p.advance();
+        left = left <span class="kw">&amp;&amp;</span> <span class="fn">parse_primary</span>(p, attrs); <span class="cmt">// short-circuit!</span>
+    }
+    left
+}
+
+<span class="kw">fn</span> <span class="fn">parse_primary</span>(p: &amp;mut Parser, attrs: &amp;HashSet) -&gt; <span class="kw">bool</span> {
+    <span class="kw">if</span> p.peek() == <span class="str">'('</span> { <span class="cmt">/* grouped */</span> }
+    <span class="kw">if</span> p.peek() == <span class="str">'!'</span> {
+        <span class="kw">let</span> name = p.read_name(); <span class="cmt">// includes ! prefix</span>
+        <span class="kw">return</span> attrs.contains(&amp;format!(<span class="str">"!{}"</span>, name));
+    }
+    attrs.contains(p.read_name())
+}</div>
+</div>
+</div>
+
+<!-- SLIDE 8: Detection Engineering Workflow -->
+<div class="slide" data-slide="8">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Detection Engineering Workflow</h2>
+  <p class="desc mb-2">How analysts create composite detections without changing the engine binary</p>
+  <div style="display:flex;flex-direction:column;gap:10px;max-width:900px;margin:0 auto">
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.1s">
+      <span class="idx">1</span>
+      <span class="name" style="color:var(--cyan);min-width:160px">Analyze Sample</span>
+      <span class="detail">Identify N behavioral indicators specific to malware family</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.15s">
+      <span class="idx">2</span>
+      <span class="name" style="color:var(--green);min-width:160px">Create Infra Markers</span>
+      <span class="detail">Write HSTR/PEHSTR/Lua sigs producing !MalFamily_IndicatorX attributes</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.2s">
+      <span class="idx">3</span>
+      <span class="name" style="color:var(--purple);min-width:160px">Write AAGGREGATOR</span>
+      <span class="detail">Create boolean expression: !Ind_A &amp; !Ind_B &amp; (!Ind_C | !Ind_D)</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.25s">
+      <span class="idx">4</span>
+      <span class="name" style="color:var(--orange);min-width:160px">Assign Threat Name</span>
+      <span class="detail">Map expression to Trojan:Win32/MalFamily.Gen!MTB</span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.3s">
+      <span class="idx">5</span>
+      <span class="name" style="color:var(--yellow);min-width:160px">Ship via VDM</span>
+      <span class="detail">Deploy globally in hours &mdash; no engine binary change needed</span>
+    </div>
+  </div>
+  <div class="stat-card mt-2" style="transition-delay:0.35s;border:2px solid rgba(255,145,0,0.4);max-width:700px">
+    <span class="label" style="font-size:0.85rem;color:var(--orange)">Turnaround time from analysis to global deployment: hours, not weeks</span>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: Key Takeaways -->
+<div class="slide" data-slide="9">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <h2 class="glow-purple mb-1">Key Takeaways</h2>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:18px;border-left:3px solid var(--purple)">
+      <h3 style="color:var(--purple);font-size:0.9rem">Composite Detection</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">Evaluates boolean expressions over attributes from all 10 prior stages. Weak signals become strong composite detections.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:18px;border-left:3px solid var(--orange)">
+      <h3 style="color:var(--orange);font-size:0.9rem">Infrastructure Markers</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">!-prefixed detections are building blocks, never reported to users. Filtered out in Stage 13 verdict resolution.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:18px;border-left:3px solid var(--green)">
+      <h3 style="color:var(--green);font-size:0.9rem">Microsecond Evaluation</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">HashSet lookup is O(1). Short-circuit evaluation. Single-pass parsing. Thousands of expressions evaluated in microseconds.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:18px;border-left:3px solid var(--cyan)">
+      <h3 style="color:var(--cyan);font-size:0.9rem">VDM Deployable</h3>
+      <p style="font-size:0.8rem;color:var(--fg2);margin-top:6px">New AAGGREGATOR rules ship via signature updates. Hours from analysis to global detection without engine changes.</p>
+    </div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">All data from reverse engineering mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Codex / Claude local state
+.claude/
+.codex/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Node / JS
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build / coverage artifacts
+dist/
+build/
+coverage/
+*.lcov
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS / misc
+Thumbs.db

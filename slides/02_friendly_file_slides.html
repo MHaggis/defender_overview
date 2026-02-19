@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 02 — FRIENDLY_FILE: SHA-256 Whitelist</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a2e;--bg4:#22223a;
+  --fg:#e0e0e8;--fg2:#a0a0b8;--fg3:#707088;
+  --cyan:#00e5ff;--green:#39ff14;--purple:#b388ff;--orange:#ff9100;
+  --red:#ff5252;--yellow:#ffd740;--pink:#ff80ab;
+  --mono:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;
+  --slide-transition:0.5s cubic-bezier(0.4,0,0.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{display:flex;flex-direction:column}
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--purple));z-index:100;transition:width 0.4s ease}
+#slide-counter{position:fixed;bottom:18px;right:24px;font-family:var(--mono);font-size:13px;color:var(--fg3);z-index:100;user-select:none}
+#deck{flex:1;position:relative;overflow:hidden}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:60px 80px;opacity:0;transform:translateX(60px);transition:opacity var(--slide-transition),transform var(--slide-transition);pointer-events:none}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+.slide.prev{opacity:0;transform:translateX(-60px)}
+.slide-inner{width:100%;max-width:1600px;height:100%;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:clamp(2rem,4.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-0.02em}
+h2{font-size:clamp(1.5rem,3vw,2.8rem);font-weight:700;line-height:1.2;letter-spacing:-0.01em;margin-bottom:0.6em}
+h3{font-size:clamp(1rem,1.8vw,1.5rem);font-weight:600;margin-bottom:0.4em}
+p,.desc{font-size:clamp(0.85rem,1.3vw,1.15rem);line-height:1.6;color:var(--fg2)}
+code,.code{font-family:var(--mono);font-size:0.9em}
+.mono{font-family:var(--mono)}
+.glow-cyan{color:var(--cyan);text-shadow:0 0 30px rgba(0,229,255,0.4),0 0 60px rgba(0,229,255,0.15)}
+.glow-green{color:var(--green);text-shadow:0 0 30px rgba(57,255,20,0.4)}
+.glow-purple{color:var(--purple);text-shadow:0 0 30px rgba(179,136,255,0.4)}
+.glow-orange{color:var(--orange);text-shadow:0 0 30px rgba(255,145,0,0.4)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;width:100%}
+.split-60-40{display:grid;grid-template-columns:3fr 2fr;gap:40px;align-items:start;width:100%}
+.center-col{display:flex;flex-direction:column;align-items:center;text-align:center}
+.mt-1{margin-top:0.5em}.mt-2{margin-top:1em}.mt-3{margin-top:1.5em}.mb-1{margin-bottom:0.5em}.mb-2{margin-bottom:1em}
+.stat-grid{display:grid;gap:14px}
+.stat-grid-4{grid-template-columns:repeat(4,1fr)}
+.stat-grid-3{grid-template-columns:repeat(3,1fr)}
+.stat-grid-2x3{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr)}
+.stat-card{background:var(--bg3);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 16px;text-align:center;opacity:0;transform:translateY(20px);transition:opacity 0.5s ease,transform 0.5s ease}
+.slide.active .stat-card{opacity:1;transform:translateY(0)}
+.stat-card .num{font-size:clamp(1.2rem,2.2vw,2rem);font-weight:800;font-family:var(--mono);display:block}
+.stat-card .label{font-size:clamp(0.65rem,0.9vw,0.85rem);color:var(--fg3);margin-top:4px;display:block}
+.engine-bar{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:8px;padding:10px 16px;border-left:4px solid var(--green);opacity:0;transform:translateX(-30px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .engine-bar{opacity:1;transform:translateX(0)}
+.engine-bar .idx{font-family:var(--mono);font-size:0.75rem;color:var(--fg3);min-width:20px}
+.engine-bar .name{font-weight:700;font-size:clamp(0.75rem,1.1vw,1rem);min-width:130px}
+.engine-bar .detail{font-size:clamp(0.65rem,0.85vw,0.85rem);color:var(--fg2)}
+.code-block{background:#0d0d18;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px 20px;font-family:var(--mono);font-size:clamp(0.7rem,0.95vw,0.9rem);line-height:1.7;overflow-x:auto;color:var(--fg2);white-space:pre}
+.code-block .kw{color:var(--purple)}.code-block .fn{color:var(--cyan)}.code-block .str{color:var(--green)}.code-block .num{color:var(--orange)}.code-block .cmt{color:var(--fg3);font-style:italic}
+.flow-node{padding:8px 14px;border-radius:8px;font-size:clamp(0.6rem,0.75vw,0.75rem);font-weight:600;text-align:center;white-space:nowrap;opacity:0;transform:translateY(10px);transition:opacity 0.4s ease,transform 0.4s ease}
+.slide.active .flow-node{opacity:1;transform:translateY(0)}
+.flow-arrow{font-size:1.2em;color:var(--fg3);padding:0 4px;opacity:0;transition:opacity 0.4s ease}
+.slide.active .flow-arrow{opacity:1}
+.pipeline-track{position:relative;background:var(--bg3);border-radius:12px;padding:20px;overflow:hidden}
+.pipeline-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);top:50%;transform:translate(-50%,-50%);left:-20px;transition:left 3s linear}
+.slide.active .pipeline-dot{left:calc(100% + 20px)}
+@media(max-width:1200px){.slide{padding:40px}.split,.split-60-40{grid-template-columns:1fr;gap:24px}.stat-grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.slide{padding:24px}.stat-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div id="slide-counter"></div>
+<div id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" data-slide="1">
+<div class="slide-inner center-col" style="justify-content:center;gap:24px">
+  <p class="mono" style="font-size:clamp(0.7rem,1vw,0.95rem);color:var(--fg3);letter-spacing:0.15em;text-transform:uppercase">Stage 02 &mdash; Reverse Engineering Deep Dive</p>
+  <h1 class="glow-green">FRIENDLY_FILE</h1>
+  <h2 style="font-weight:400;font-size:clamp(1rem,2vw,1.6rem);color:var(--fg2)">SHA-256 / SHA-512 Whitelist &mdash; The First Pipeline Gate</h2>
+  <div style="display:flex;gap:24px;margin-top:32px;flex-wrap:wrap;justify-content:center">
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-cyan">SHA-256</span><span class="label">Primary Hash</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-green">SHA-512</span><span class="label">Secondary Hash</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-purple">O(1)</span><span class="label">Lookup Time</span></div>
+    <div class="stat-card" style="opacity:1;transform:none;min-width:120px"><span class="num glow-orange">11</span><span class="label">Stages Skipped</span></div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">From RE of mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+<!-- SLIDE 2: Purpose -->
+<div class="slide" data-slide="2">
+<div class="slide-inner">
+  <h2 class="glow-green mb-2">Why FRIENDLY_FILE Exists</h2>
+  <div class="split">
+    <div>
+      <p class="desc">The FRIENDLY_FILE check is the <strong>first filter</strong> after command dispatch. It computes the SHA-256 hash of the scanned file and checks it against a database of known-good hashes.</p>
+      <p class="desc mt-2">If the hash matches, the file is marked <strong>"friendly"</strong> and the entire remaining pipeline (stages 3-13) is <strong>bypassed</strong>.</p>
+      <p class="desc mt-2">This is a pure <strong>performance optimization</strong>: most OS files, Microsoft binaries, and common applications are in the database. Real-time protection resolves the majority of events here.</p>
+      <p class="desc mt-2" style="color:var(--fg3)">The friendly database is loaded from VDM signature files during MpBootStrap and compiled into a hash set for constant-time lookup.</p>
+    </div>
+    <div>
+      <div class="code-block"><span class="cmt">// Pseudocode from RE</span>
+<span class="kw">fn</span> <span class="fn">check_friendly</span>(data: &amp;[u8]) -&gt; <span class="kw">bool</span> {
+    <span class="kw">let</span> hash = <span class="fn">sha256</span>(data);
+
+    <span class="cmt">// O(1) lookup in FRIENDLYFILE db</span>
+    <span class="kw">if</span> <span class="fn">friendly_db</span>.<span class="fn">contains</span>(&amp;hash) {
+        <span class="fn">set_attribute</span>(<span class="str">"friendlysigsha"</span>, &amp;hash);
+        <span class="fn">set_attribute</span>(<span class="str">"friendlysigseq"</span>, seq);
+        <span class="kw">return true</span>;  <span class="cmt">// SKIP pipeline</span>
+    }
+    <span class="kw">false</span>  <span class="cmt">// Continue to Stage 03</span>
+}</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 3: Signature Types -->
+<div class="slide" data-slide="3">
+<div class="slide-inner center-col">
+  <h2 class="glow-cyan mb-2">Signature Types</h2>
+  <p class="desc mb-2">Two VDM signature types carry the friendly-file hash database</p>
+  <div class="stat-grid" style="grid-template-columns:1fr 1fr;gap:20px;width:100%;max-width:1000px">
+    <div class="stat-card" style="transition-delay:0.1s;border-left:4px solid var(--cyan);text-align:left;padding:20px">
+      <span class="num" style="font-size:1.1rem;color:var(--cyan)">SIGNATURE_TYPE_FRIENDLYFILE_SHA256</span>
+      <span class="label" style="margin-top:8px">Address: <code>0x10986BE4</code></span>
+      <span style="display:block;font-size:0.78rem;color:var(--fg2);margin-top:10px">Primary hash type. 32-byte SHA-256 digest per entry. Covers the vast majority of known-good files.</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-left:4px solid var(--green);text-align:left;padding:20px">
+      <span class="num" style="font-size:1.1rem;color:var(--green)">SIGNATURE_TYPE_FRIENDLYFILE_SHA512</span>
+      <span class="label" style="margin-top:8px">Address: <code>0x10986B74</code></span>
+      <span style="display:block;font-size:0.78rem;color:var(--fg2);margin-top:10px">Secondary hash type. 64-byte SHA-512 digest. Used for higher-assurance entries (e.g., critical system files).</span>
+    </div>
+  </div>
+  <div class="stat-card mt-3" style="transition-delay:0.3s;max-width:600px;border:1px solid rgba(255,215,64,0.3)">
+    <span class="num" style="font-size:1rem;color:var(--yellow)">BUILTIN:FRIENDLYSHA256</span>
+    <span class="label">Built-in check at <code>0x10A4B284</code> (UTF-16LE)</span>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 4: Config Flags -->
+<div class="slide" data-slide="4">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">Configuration Flags</h2>
+  <p class="desc mb-2">Binary strings that control friendly-file behavior</p>
+  <div class="split">
+    <div>
+      <h3 style="color:var(--orange)">Enable / Control</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.1s">
+          <span class="name" style="color:var(--orange);font-size:0.85rem">isfriendlyscan</span>
+          <span class="detail"><code>0x1097ECFC</code> &mdash; Master enable flag</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.15s">
+          <span class="name" style="color:var(--orange);font-size:0.85rem">istriggercloudyfriendlyscan</span>
+          <span class="detail"><code>0x1097ED0C</code> &mdash; Cloud re-check on friendly match</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.2s">
+          <span class="name" style="color:var(--cyan);font-size:0.85rem">isprocessfriendly</span>
+          <span class="detail"><code>0x109EB12C</code> &mdash; Per-process friendly cache</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.25s">
+          <span class="name" style="color:var(--cyan);font-size:0.85rem">rtpprocessfriendly</span>
+          <span class="detail"><code>0x109E49D8</code> &mdash; RTP process-level flag</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:var(--orange)">Unfriendly Cache</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.3s">
+          <span class="name" style="color:var(--red);font-size:0.85rem">MpDisableUnfriendlyCache</span>
+          <span class="detail"><code>0x10A64EC0</code> &mdash; Disable negative cache</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.35s">
+          <span class="name" style="color:var(--red);font-size:0.85rem">Unfriendly</span>
+          <span class="detail"><code>0x10A6E080</code> &mdash; Cache category label</span>
+        </div>
+        <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.4s">
+          <span class="name" style="color:var(--red);font-size:0.85rem">MpNwUnfriendly</span>
+          <span class="detail"><code>0x10A54570</code> &mdash; Network unfriendly flag</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 5: Telemetry Attributes -->
+<div class="slide" data-slide="5">
+<div class="slide-inner center-col">
+  <h2 class="glow-purple mb-2">Telemetry Attributes</h2>
+  <p class="desc mb-2">Properties written when a friendly match or suppression occurs</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s;border-left:3px solid var(--cyan);text-align:left;padding:14px">
+      <span class="num" style="font-size:0.85rem;color:var(--cyan)">friendlysigsha</span>
+      <span class="label"><code>0x109E76A0</code></span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px">SHA hash of the matched friendly entry</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;border-left:3px solid var(--cyan);text-align:left;padding:14px">
+      <span class="num" style="font-size:0.85rem;color:var(--cyan)">friendlysigseq</span>
+      <span class="label"><code>0x109E7654</code></span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px">Signature sequence number of the match</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;border-left:3px solid var(--green);text-align:left;padding:14px">
+      <span class="num" style="font-size:0.85rem;color:var(--green)">friendlysigseqstring</span>
+      <span class="label"><code>0x109E76D4</code></span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px">Sequence as formatted string</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;border-left:3px solid var(--orange);text-align:left;padding:14px">
+      <span class="num" style="font-size:0.85rem;color:var(--orange)">friendlysuppressed</span>
+      <span class="label"><code>0x109E1DDC</code></span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px">Was friendly status suppressed?</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.3s;border-left:3px solid var(--orange);text-align:left;padding:14px">
+      <span class="num" style="font-size:0.85rem;color:var(--orange)">friendlysuppressedsigseq</span>
+      <span class="label"><code>0x109E7988</code></span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px">Suppressed sig sequence number</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.35s;border-left:3px solid var(--purple);text-align:left;padding:14px">
+      <span class="num" style="font-size:0.85rem;color:var(--purple)">friendlyreason</span>
+      <span class="label"><code>0x109E2308</code></span>
+      <span style="display:block;font-size:0.7rem;color:var(--fg2);margin-top:6px">Reason code for friendly disposition</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 6: Trust Integration -->
+<div class="slide" data-slide="6">
+<div class="slide-inner">
+  <h2 class="glow-cyan mb-1">Trust &amp; Signing Integration</h2>
+  <p class="desc mb-2">How the friendly system interacts with certificate trust verification</p>
+  <div style="display:flex;flex-direction:column;gap:7px">
+    <div class="engine-bar" style="border-left-color:var(--green);transition-delay:0.05s">
+      <span class="name" style="color:var(--green);min-width:180px">Trusted file</span>
+      <span class="detail"><code>0x10A4C0C8</code> &mdash; <em>"%ls is trusted - %hs"</em></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--red);transition-delay:0.1s">
+      <span class="name" style="color:var(--red);min-width:180px">NOT trusted</span>
+      <span class="detail"><code>0x10A4BF00</code> &mdash; <em>"%ls is NOT trusted. Checking Trust? %d"</em></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--purple);transition-delay:0.15s">
+      <span class="name" style="color:var(--purple);min-width:180px">Trusted installer</span>
+      <span class="detail"><code>0x10A4BF50</code> &mdash; <em>"%ls is a trusted file that might be an installer..."</em></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--orange);transition-delay:0.2s">
+      <span class="name" style="color:var(--orange);min-width:180px">Detection suppressed</span>
+      <span class="detail"><code>0x10A53AC8</code> &mdash; <em>"Detection supressed: %ls...file is trusted (count=%d)" [sic]</em></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.25s">
+      <span class="name" style="color:var(--yellow);min-width:180px">Cert revoked</span>
+      <span class="detail"><code>0x10A4BDB0</code> &mdash; <em>"...not trusted, because the certificate is revoked"</em></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--yellow);transition-delay:0.3s">
+      <span class="name" style="color:var(--yellow);min-width:180px">Cert excluded</span>
+      <span class="detail"><code>0x10A4BB70</code> &mdash; <em>"...not trusted, because the certificate is excluded"</em></span>
+    </div>
+    <div class="engine-bar" style="border-left-color:var(--cyan);transition-delay:0.35s">
+      <span class="name" style="color:var(--cyan);min-width:180px">BM suppression</span>
+      <span class="detail"><code>0x10A666C0</code> &mdash; <em>"BM detection suppressed due to friendlyness." [sic]</em></span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 7: FileHashes Table -->
+<div class="slide" data-slide="7">
+<div class="slide-inner">
+  <h2 class="glow-orange mb-1">FileHashes SQLite Table</h2>
+  <p class="desc mb-2">Embedded SQL schema at <code>0x10A5B4A0</code> reveals the hash cache structure</p>
+  <div class="split-60-40">
+    <div class="code-block" style="font-size:0.72rem"><span class="cmt">-- Embedded SQL from mpengine.dll @ 0x10A5B4A0</span>
+<span class="kw">CREATE TABLE</span> <span class="fn">FileHashes</span>(
+    ID              <span class="kw">INTEGER PRIMARY KEY NOT NULL</span>,
+    Key             <span class="kw">INTEGER</span>,
+    VSN             <span class="kw">INTEGER</span>,
+    FileID          <span class="kw">INTEGER</span>,
+    USN             <span class="kw">INTEGER</span>,
+    InstanceTimeStamp <span class="kw">INTEGER</span>,
+    <span class="str">SHA1</span>            <span class="kw">BLOB</span>,
+    <span class="str">MD5</span>             <span class="kw">BLOB</span>,
+    <span class="str">SHA256</span>          <span class="kw">BLOB</span>,
+    <span class="str">LSHASH</span>          <span class="kw">BLOB</span>,    <span class="cmt">-- locality-sensitive</span>
+    <span class="str">LSHASHS</span>         <span class="kw">BLOB</span>,    <span class="cmt">-- LS hash short</span>
+    <span class="str">CTPH</span>            <span class="kw">BLOB</span>,    <span class="cmt">-- ssdeep</span>
+    PartialCRC1     <span class="kw">UNSIGNED INT</span>,
+    PartialCRC2     <span class="kw">UNSIGNED INT</span>,
+    PartialCRC3     <span class="kw">UNSIGNED INT</span>,
+    KCRC1           <span class="kw">UNSIGNED INT</span>,
+    KCRC2           <span class="kw">UNSIGNED INT</span>,
+    KCRC3           <span class="kw">UNSIGNED INT</span>,
+    KCRC3n          <span class="kw">UNSIGNED INT</span>
+);</div>
+    <div>
+      <h3 style="color:var(--orange)">Hash Types Stored</h3>
+      <div class="stat-grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+        <div class="stat-card" style="transition-delay:0.1s"><span class="num" style="font-size:0.9rem;color:var(--cyan)">SHA-1</span><span class="label">Legacy compat</span></div>
+        <div class="stat-card" style="transition-delay:0.15s"><span class="num" style="font-size:0.9rem;color:var(--green)">MD5</span><span class="label">Fast lookup</span></div>
+        <div class="stat-card" style="transition-delay:0.2s"><span class="num" style="font-size:0.9rem;color:var(--purple)">SHA-256</span><span class="label">Friendly check</span></div>
+        <div class="stat-card" style="transition-delay:0.25s"><span class="num" style="font-size:0.9rem;color:var(--orange)">LSHASH</span><span class="label">Fuzzy match</span></div>
+        <div class="stat-card" style="transition-delay:0.3s"><span class="num" style="font-size:0.9rem;color:var(--yellow)">CTPH</span><span class="label">ssdeep</span></div>
+        <div class="stat-card" style="transition-delay:0.35s"><span class="num" style="font-size:0.9rem;color:var(--red)">KCRCx3</span><span class="label">Partial CRCs</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 8: Flow Diagram -->
+<div class="slide" data-slide="8">
+<div class="slide-inner center-col">
+  <h2 class="glow-green mb-1">FRIENDLY_FILE Lookup Flow</h2>
+  <p class="desc mb-2">From scan request to friendly verdict or pipeline continuation</p>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;max-width:800px">
+    <div class="flow-node" style="background:var(--bg4);border:1px solid rgba(255,255,255,0.15);transition-delay:0.05s;padding:10px 30px;width:100%;font-size:0.8rem">Scan request from Stage 01 dispatch</div>
+    <span class="flow-arrow" style="font-size:1.5em;transition-delay:0.08s">&darr;</span>
+    <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);transition-delay:0.1s;padding:10px 30px;width:100%;color:var(--orange);font-size:0.8rem">Check <code>isfriendlyscan</code> enabled? (@ 0x1097ECFC)</div>
+    <div style="display:flex;gap:40px;width:100%;justify-content:center">
+      <div style="text-align:center">
+        <span class="flow-arrow" style="transition-delay:0.12s;display:block">&darr; Yes</span>
+        <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);transition-delay:0.15s;padding:10px 20px;color:var(--cyan);font-size:0.75rem">Compute SHA-256</div>
+      </div>
+      <div style="text-align:center">
+        <span class="flow-arrow" style="transition-delay:0.12s;display:block">&darr; No</span>
+        <div class="flow-node" style="background:rgba(57,255,20,0.1);border:1px solid rgba(57,255,20,0.3);transition-delay:0.15s;padding:10px 20px;color:var(--green);font-size:0.75rem">Skip to Stage 03</div>
+      </div>
+    </div>
+    <span class="flow-arrow" style="font-size:1.5em;transition-delay:0.18s">&darr;</span>
+    <div class="flow-node" style="background:rgba(179,136,255,0.1);border:1px solid rgba(179,136,255,0.3);transition-delay:0.2s;padding:10px 30px;width:100%;color:var(--purple);font-size:0.8rem">Lookup in FRIENDLYFILE_SHA256 database (@ 0x10986BE4)</div>
+    <div style="display:flex;gap:40px;width:100%;justify-content:center">
+      <div style="text-align:center">
+        <span class="flow-arrow" style="transition-delay:0.22s;display:block">&darr; Match</span>
+        <div class="flow-node" style="background:rgba(57,255,20,0.15);border:2px solid rgba(57,255,20,0.5);transition-delay:0.25s;padding:10px 20px;color:var(--green);font-weight:700;font-size:0.8rem">RETURN CLEAN<br><span style="font-weight:400;font-size:0.65rem">Skip stages 3-13</span></div>
+      </div>
+      <div style="text-align:center">
+        <span class="flow-arrow" style="transition-delay:0.22s;display:block">&darr; No match</span>
+        <div class="flow-node" style="background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);transition-delay:0.25s;padding:10px 20px;color:var(--orange);font-size:0.75rem">Try SHA-512 (@ 0x10986B74)</div>
+        <span class="flow-arrow" style="transition-delay:0.28s;display:block">&darr; No match</span>
+        <div class="flow-node" style="background:rgba(0,229,255,0.1);border:1px solid rgba(0,229,255,0.3);transition-delay:0.3s;padding:10px 20px;color:var(--cyan);font-size:0.75rem">Continue to Stage 03</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 9: Suppression Scenarios -->
+<div class="slide" data-slide="9">
+<div class="slide-inner">
+  <h2 class="glow-red mb-1" style="color:var(--red);text-shadow:0 0 30px rgba(255,82,82,0.4)">Friendly Suppression</h2>
+  <p class="desc mb-2">When even known-good files must be fully scanned</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+    <div style="background:var(--bg3);border:1px solid rgba(255,82,82,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.1s" class="stat-card">
+      <h3 style="color:var(--red);margin-bottom:8px;font-size:0.95rem">Cloud Rescan</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);line-height:1.6">When <code>istriggercloudyfriendlyscan</code> is set, the cloud service forces a full rescan of friendly files.</p>
+      <div class="mono mt-2" style="font-size:0.7rem;color:var(--fg3)">@ 0x1097ED0C</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,82,82,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.2s" class="stat-card">
+      <h3 style="color:var(--red);margin-bottom:8px;font-size:0.95rem">Supply Chain Override</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);line-height:1.6">When a new signature explicitly targets a previously-friendly file, <code>friendlysuppressed</code> is set.</p>
+      <div class="mono mt-2" style="font-size:0.7rem;color:var(--fg3)">@ 0x109E1DDC</div>
+    </div>
+    <div style="background:var(--bg3);border:1px solid rgba(255,82,82,0.3);border-radius:12px;padding:20px;opacity:0;transform:translateY(20px);transition:all 0.5s ease 0.3s" class="stat-card">
+      <h3 style="color:var(--red);margin-bottom:8px;font-size:0.95rem">BM Behavioral</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);line-height:1.6">Behavior monitoring can suppress friendly status at runtime if suspicious activity is detected.</p>
+      <div class="mono mt-2" style="font-size:0.7rem;color:var(--fg3)">@ 0x10A666C0</div>
+    </div>
+  </div>
+  <div class="code-block mt-3" style="font-size:0.75rem;max-width:800px;margin:1em auto 0"><span class="cmt">// From mpengine.dll @ 0x10A666C0</span>
+<span class="str">"BM detection suppressed due to friendlyness." [sic]</span>
+
+<span class="cmt">// From mpengine.dll @ 0x10A53AC8</span>
+<span class="str">"Detection supressed: %ls (%hs) (0x%llx) (file is trusted) (count=%d)" [sic]</span></div>
+</div>
+</div>
+
+<!-- SLIDE 10: Performance Impact -->
+<div class="slide" data-slide="10">
+<div class="slide-inner center-col" style="justify-content:center">
+  <h2 class="glow-cyan mb-2">Performance Impact</h2>
+  <p class="desc mb-2">Why this is the <strong>first</strong> check in the pipeline</p>
+  <div class="stat-grid stat-grid-4" style="width:100%;max-width:1200px">
+    <div class="stat-card" style="transition-delay:0.1s">
+      <span class="num glow-cyan" style="font-size:1.3rem">~us</span>
+      <span class="label">SHA-256 compute time</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s">
+      <span class="num glow-green">O(1)</span>
+      <span class="label">Hash set lookup</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s">
+      <span class="num glow-purple">11</span>
+      <span class="label">Stages skipped on match</span>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s">
+      <span class="num glow-orange" style="font-size:1.2rem">High%</span>
+      <span class="label">Hit rate (OS files)</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px;width:100%;max-width:900px">
+    <div class="stat-card" style="transition-delay:0.3s;text-align:left;padding:16px">
+      <h3 style="color:var(--green);font-size:0.9rem">Match Path (microseconds)</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);margin-top:6px">SHA-256 + hash set lookup. File is immediately classified as clean. All 11 remaining stages bypassed.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.35s;text-align:left;padding:16px">
+      <h3 style="color:var(--red);font-size:0.9rem">Miss Path (milliseconds+)</h3>
+      <p style="font-size:0.75rem;color:var(--fg2);margin-top:6px">Full pipeline: 11 static engines, PE emulation, container extraction, script deob, BRUTE, Lua, AAGG, cloud.</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SLIDE 11: Summary -->
+<div class="slide" data-slide="11">
+<div class="slide-inner center-col" style="justify-content:center;gap:20px">
+  <h2 class="glow-green mb-1">Stage 02 Summary</h2>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;width:100%;max-width:1000px">
+    <div class="stat-card" style="transition-delay:0.1s;text-align:left;padding:16px">
+      <h3 style="color:var(--green);font-size:0.95rem">Hash-Based Whitelist</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">SHA-256 and SHA-512 hashes from VDM sigs. O(1) lookup in compiled hash set. First filter in pipeline.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.15s;text-align:left;padding:16px">
+      <h3 style="color:var(--cyan);font-size:0.95rem">Rich Telemetry</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">15+ attributes tracked: sigsha, sigseq, suppressed status, reason codes. Both UTF-16LE and ASCII variants.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.2s;text-align:left;padding:16px">
+      <h3 style="color:var(--purple);font-size:0.95rem">Trust Integration</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">Interacts with certificate verification. Trusted publishers can add friendly entries. Revoked certs force unfriendly.</p>
+    </div>
+    <div class="stat-card" style="transition-delay:0.25s;text-align:left;padding:16px">
+      <h3 style="color:var(--orange);font-size:0.95rem">Next: Static Engines</h3>
+      <p style="font-size:0.78rem;color:var(--fg2);margin-top:6px">If the file is not friendly, it proceeds to Stage 03: the 11-engine static signature cascade.</p>
+    </div>
+  </div>
+  <p class="mono mt-3" style="font-size:0.75rem;color:var(--fg3)">All addresses from RE of mpengine.dll v1.1.24120.x</p>
+</div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('slide-counter');
+  function parseHash(){const h=parseInt(location.hash.replace('#',''),10);if(h>=1&&h<=total)return h-1;return 0;}
+  function goTo(n,skipHash){
+    if(n<0||n>=total||n===current)return;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(n>current?'prev':'');
+    const old=slides[current];setTimeout(()=>old.classList.remove('prev'),600);
+    current=n;slides[current].classList.add('active');
+    progress.style.width=((current+1)/total*100)+'%';
+    counter.textContent=(current+1)+' / '+total;
+    if(!skipHash)location.hash='#'+(current+1);
+    animateCounters(slides[current]);
+  }
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home'){e.preventDefault();goTo(0);}
+    else if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+  document.getElementById('deck').addEventListener('click',function(e){
+    if(e.clientX<window.innerWidth*0.35)prev();
+    else if(e.clientX>window.innerWidth*0.65)next();
+  });
+  let touchStartX=0;
+  document.addEventListener('touchstart',function(e){touchStartX=e.changedTouches[0].clientX;},{passive:true});
+  document.addEventListener('touchend',function(e){const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>50){if(dx<0)next();else prev();}},{passive:true});
+  window.addEventListener('hashchange',function(){goTo(parseHash(),true);});
+  function animateCounters(el){
+    el.querySelectorAll('[data-count]').forEach(function(n){
+      const target=parseInt(n.getAttribute('data-count'),10);if(isNaN(target))return;
+      const start=performance.now();
+      function tick(now){const t=Math.min((now-start)/1200,1);const eased=1-Math.pow(1-t,3);
+        n.textContent=Math.round(target*eased).toLocaleString();if(t<1)requestAnimationFrame(tick);}
+      requestAnimationFrame(tick);
+    });
+  }
+  const startSlide=parseHash();if(startSlide!==0)slides[0].classList.remove('active');
+  current=startSlide;slides[current].classList.add('active');
+  progress.style.width=((current+1)/total*100)+'%';
+  counter.textContent=(current+1)+' / '+total;
+  setTimeout(function(){animateCounters(slides[current]);},300);
+})();
+</script>
+<script src="deck_master_nav.js"></script>
+</body>
+</html>
